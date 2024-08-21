@@ -8,6 +8,7 @@ import ast
 from pathlib import Path
 from packaging.version import parse, Version
 import platform
+import shutil
 
 from setuptools import setup, find_packages
 import subprocess
@@ -40,7 +41,8 @@ BASE_WHEEL_URL = (
 
 # FORCE_BUILD: Force a fresh build locally, instead of attempting to find prebuilt wheels
 # SKIP_CUDA_BUILD: Intended to allow CI to use a simple `python setup.py sdist` run to copy over raw files, without any cuda compilation
-FORCE_BUILD = os.getenv("FLASH_ATTENTION_FORCE_BUILD", "FALSE") == "TRUE"
+# FORCE_BUILD = os.getenv("FLASH_ATTENTION_FORCE_BUILD", "FALSE") == "TRUE"
+FORCE_BUILD = True
 SKIP_CUDA_BUILD = os.getenv("FLASH_ATTENTION_SKIP_CUDA_BUILD", "FALSE") == "TRUE"
 # For CI, we want the option to build with C++11 ABI since the nvcr images use C++11 ABI
 FORCE_CXX11_ABI = os.getenv("FLASH_ATTENTION_FORCE_CXX11_ABI", "FALSE") == "TRUE"
@@ -281,7 +283,8 @@ class CachedWheelsCommand(_bdist_wheel):
 
             wheel_path = os.path.join(self.dist_dir, archive_basename + ".whl")
             print("Raw wheel path", wheel_path)
-            os.rename(wheel_filename, wheel_path)
+            # os.rename(wheel_filename, wheel_path)
+            shutil.move(wheel_filename, wheel_path)
         except urllib.error.HTTPError:
             print("Precompiled wheel not found. Building from source...")
             # If the wheel could not be downloaded, build from source
