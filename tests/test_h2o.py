@@ -628,6 +628,7 @@ def test_flash_attn_output(
             return_attn_probs=True,
         )
     else:
+        print("test h2o: case flash_attn_func")
         out, lse, S_dmask = flash_attn_func(
             q,
             k,

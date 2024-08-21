@@ -44,11 +44,11 @@ def _get_block_size_n(device, head_dim, is_dropout, is_causal):
 
 
 def _flash_attn_forward(
-    q, k, v, dropout_p, softmax_scale, causal, window_size, alibi_slopes, return_softmax
+    q, k, v, dropout_p, softmax_scale, causal, window_size, alibi_slopes, return_softmax, return_accum_score
 ):
     maybe_contiguous = lambda x: x.contiguous() if x.stride(-1) != 1 else x
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = flash_attn_cuda.fwd(
+    out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state, accum_score = flash_attn_cuda.fwd(
         q,
         k,
         v,
@@ -61,8 +61,9 @@ def _flash_attn_forward(
         window_size[1],
         return_softmax,
         None,
+        return_accum_score
     )
-    return out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state
+    return out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state, accum_score
 
 
 def _flash_attn_varlen_forward(
@@ -505,10 +506,11 @@ class FlashAttnFunc(torch.autograd.Function):
         alibi_slopes,
         deterministic,
         return_softmax,
+        return_accum_score
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_forward(
+        out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state, accum_score = _flash_attn_forward(
             q,
             k,
             v,
@@ -518,6 +520,7 @@ class FlashAttnFunc(torch.autograd.Function):
             window_size=window_size,
             alibi_slopes=alibi_slopes,
             return_softmax=return_softmax and dropout_p > 0,
+            return_accum_score=return_accum_score
         )
         ctx.save_for_backward(q, k, v, out_padded, softmax_lse, rng_state)
         ctx.dropout_p = dropout_p
@@ -526,7 +529,13 @@ class FlashAttnFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return out if not return_softmax else (out, softmax_lse, S_dmask)
+        
+        if return_softmax:
+            return (out, softmax_lse, S_dmask)
+        elif return_accum_score:
+            return (out, softmax_lse, S_dmask)
+        else:
+            return out 
 
     @staticmethod
     def backward(ctx, dout, *args):
@@ -779,6 +788,7 @@ def flash_attn_func(
     alibi_slopes=None,
     deterministic=False,
     return_attn_probs=False,
+    return_accum_score=False
 ):
     """dropout_p should be set to 0.0 during evaluation
     Supports multi-query and grouped-query attention (MQA/GQA) by passing in KV with fewer heads
@@ -839,6 +849,7 @@ def flash_attn_func(
         alibi_slopes,
         deterministic,
         return_attn_probs,
+        return_accum_score
     )
 
 
