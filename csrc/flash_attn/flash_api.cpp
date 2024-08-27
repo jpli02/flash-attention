@@ -43,7 +43,8 @@ void set_params_fprop(Flash_fwd_params &params,
                       float softmax_scale,
                       int window_size_left,
                       int window_size_right,
-                      bool seqlenq_ngroups_swapped=false) {
+                      bool seqlenq_ngroups_swapped=false,
+                      void* c_d) {
 
     // Reset the parameters
     params = {};
@@ -82,6 +83,9 @@ void set_params_fprop(Flash_fwd_params &params,
 
     // P = softmax(QK^T)
     params.p_ptr = p_d;
+
+    // C = col_wise_sum(P)
+    params.c_ptr = c_d;
 
     // Softmax sum
     params.softmax_lse_ptr = softmax_lse_d;
@@ -326,7 +330,8 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
         int window_size_left,
         int window_size_right,
         const bool return_softmax,
-        c10::optional<at::Generator> gen_) {
+        c10::optional<at::Generator> gen_,
+        const bool return_accum_score) {
 
     auto dprops = at::cuda::getCurrentDeviceProperties();
     // bool is_sm75 = dprops->major == 7 && dprops->minor == 5;
@@ -430,6 +435,12 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
         p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
     }
 
+    // Return col-wise sum of softmax score map
+    at::Tensor c;
+    if (return_accum_score) {
+        c = torch::empty({ batch_size, num_heads, 1, seqlen_k_rounded }, opts);
+    }
+
     Flash_fwd_params params;
     set_params_fprop(params,
                      batch_size,
@@ -446,7 +457,8 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
                      p_dropout,
                      softmax_scale,
                      window_size_left,
-                     window_size_right);
+                     window_size_right,
+                     return_accum_score ? c.data_ptr() : nullptr);
 
 
     set_params_splitkv(params, batch_size, num_heads,
