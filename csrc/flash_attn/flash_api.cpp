@@ -44,7 +44,7 @@ void set_params_fprop(Flash_fwd_params &params,
                       int window_size_left,
                       int window_size_right,
                       bool seqlenq_ngroups_swapped=false,
-                      void* c_d) {
+                      void* c_d=nullptr) {
 
     // Reset the parameters
     params = {};
