@@ -639,6 +639,7 @@ def test_flash_attn_output(
             alibi_slopes=alibi_slopes,
             deterministic=deterministic,
             return_attn_probs=True,
+            return_accum_score=False
         )
     if dropout_p > 0.0:
         S_dmask_converted = convert_flash_attn_S_to_softmax(
@@ -740,6 +741,10 @@ def test_flash_attn_output(
         print(f"Attention max diff: {(attn - attn_ref).abs().max().item()}")
         print(f"Attention Pytorch max diff: {(attn_pt - attn_ref).abs().max().item()}")
 
+    print(f" \n output len is {len(out)} \n")
+    print(f" \n output ref len is {len(out_ref)} \n")
+    print(f" \n output pt len is {len(out_pt)} \n")
+    
     g = torch.randn_like(out)
     do_o = (g.float() * out.float()).sum(-1)
     if (d <= MAX_HEADDIM_SM8x or (d > 224 and dropout_p == 0)) or (is_sm80 or is_sm90):

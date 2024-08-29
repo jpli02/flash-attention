@@ -153,6 +153,7 @@ struct Flash_bwd_params : public Flash_fwd_params {
     void *__restrict__ dq_ptr;
     void *__restrict__ dk_ptr;
     void *__restrict__ dv_ptr;
+    void *__restrict__ dc_ptr;
 
     // To accumulate dQ
     void *__restrict__ dq_accum_ptr;

@@ -530,12 +530,13 @@ class FlashAttnFunc(torch.autograd.Function):
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
         
-        if return_softmax:
-            return (out, softmax_lse, S_dmask)
-        elif return_accum_score:
-            return (out, softmax_lse, S_dmask)
-        else:
-            return out 
+        # if return_softmax:
+        #     return (out, softmax_lse, S_dmask)
+        # # elif return_accum_score:
+        #     # return (out, softmax_lse, S_dmask)
+        # else:
+        #     return out 
+        return out if not return_softmax else (out, softmax_lse, S_dmask)
 
     @staticmethod
     def backward(ctx, dout, *args):
