@@ -38,6 +38,7 @@ void set_params_fprop(Flash_fwd_params &params,
                       void *cu_seqlens_k_d,
                       void *seqused_k,
                       void *p_d,
+                      void *c_d,
                       void *softmax_lse_d,
                       float p_dropout,
                       float softmax_scale,
@@ -82,6 +83,8 @@ void set_params_fprop(Flash_fwd_params &params,
 
     // P = softmax(QK^T)
     params.p_ptr = p_d;
+    params.c_ptr = c_d;
+
 
     // Softmax sum
     params.softmax_lse_ptr = softmax_lse_d;
@@ -175,6 +178,7 @@ void set_params_dgrad(Flash_bwd_params &params,
                      q, k, v, out,
                      cu_seqlens_q_d,
                      cu_seqlens_k_d,
+                     nullptr,
                      nullptr,
                      nullptr,
                      softmax_lse_d,
@@ -430,6 +434,10 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
         p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
     }
 
+    at::Tensor c;
+    TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
+    c = torch::empty({ batch_size, num_heads, 1, seqlen_k_rounded }, opts);
+    
     Flash_fwd_params params;
     set_params_fprop(params,
                      batch_size,
@@ -442,6 +450,7 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
                      /*cu_seqlens_k_d=*/nullptr,
                      /*seqused_k=*/nullptr,
                      return_softmax ? p.data_ptr() : nullptr,
+                     c.data_ptr(),
                      softmax_lse.data_ptr(),
                      p_dropout,
                      softmax_scale,
@@ -493,7 +502,7 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
         q_padded = q_padded.transpose(1, 2).reshape({batch_size, 1, num_heads_k * seqlen_q, head_size_og});
         softmax_lse = softmax_lse.reshape({batch_size, num_heads_k * seqlen_q, 1});
     }
-    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, rng_state};
+    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, c, rng_state};
 }
 
 std::vector<at::Tensor>
@@ -660,6 +669,11 @@ mha_varlen_fwd(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \s
         p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
     }
 
+    at::Tensor c;
+    TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
+    c = torch::empty({ batch_size, num_heads, 1, seqlen_k_rounded }, opts);
+    
+
     if (zero_tensors) {
         out.zero_();
         softmax_lse.fill_(-std::numeric_limits<float>::infinity());
@@ -678,6 +692,7 @@ mha_varlen_fwd(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \s
                      cu_seqlens_k.data_ptr(),
                      seqused_k.has_value() ? seqused_k.value().data_ptr() : nullptr,
                      return_softmax ? p.data_ptr() : nullptr,
+                     c.data_ptr(),
                      softmax_lse.data_ptr(),
                      p_dropout,
                      softmax_scale,
@@ -742,7 +757,7 @@ mha_varlen_fwd(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \s
         softmax_lse = softmax_lse.reshape({batch_size, num_heads_k * max_seqlen_q, 1});
     }
 
-    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, rng_state};
+    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, c, rng_state};
 }
 
 void run_mha_bwd(Flash_bwd_params &params, cudaStream_t stream) {
@@ -1377,6 +1392,7 @@ mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_he
                      /*cu_seqlens_k_d=*/nullptr,
                      /*seqused_k=*/nullptr,
                      /*p_ptr=*/nullptr,
+                     /*c_ptr=*/nullptr,
                      softmax_lse.data_ptr(),
                      /*p_dropout=*/0.f,
                      softmax_scale,

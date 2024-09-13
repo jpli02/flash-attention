@@ -617,7 +617,7 @@ def test_flash_attn_output(
         alibi_slopes, attn_bias = None, None
 
     if kvpacked:
-        out, lse, S_dmask = flash_attn_kvpacked_func(
+        out, lse, S_dmask, c = flash_attn_kvpacked_func(
             q,
             kv,
             dropout_p,
@@ -628,7 +628,7 @@ def test_flash_attn_output(
             return_attn_probs=True,
         )
     else:
-        out, lse, S_dmask = flash_attn_func(
+        out, lse, S_dmask, c = flash_attn_func(
             q,
             k,
             v,
