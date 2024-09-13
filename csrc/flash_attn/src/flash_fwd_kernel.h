@@ -131,6 +131,11 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
                             make_stride(params.v_row_stride, params.v_head_stride, _1{}));
     Tensor gV = local_tile(mV(_, bidh / params.h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
                            make_coord(_, 0));  // (kBlockN, kHeadDim, nblocksN)
+    // Modified: for col-wise accum score
+    Tensor gC = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.c_ptr)),
+                            Shape<Int<kBlockM>, Int<kBlockN>>{},
+                            make_stride(params.seqlen_k_rounded, _1{}));
+
     Tensor gP = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.p_ptr) + row_offset_p),
                             Shape<Int<kBlockM>, Int<kBlockN>>{},
                             make_stride(params.seqlen_k_rounded, _1{}));
@@ -161,6 +166,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     Tensor tOrVt  = thr_mma.partition_fragment_B(sVtNoSwizzle);                // (MMA, MMA_K,MMA_N)
 
     Tensor tSgS  = thr_mma.partition_C(gP);
+    // Modified: for col-wise accum score
+    Tensor tSgC  = thr_mma.partition_C(gC);
+
 
     Tensor acc_o = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kHeadDim>>{});  // MMA, MMA_M, MMA_K
 
@@ -330,6 +338,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             );
             cute::copy(rP_drop, tSgS);
             tSgS.data() = tSgS.data() + (-kBlockN);
+        
         }
         if (Is_dropout) {
             dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);

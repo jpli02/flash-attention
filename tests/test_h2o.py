@@ -730,6 +730,14 @@ def test_flash_attn_output(
             upcast=False,
             reorder_ops=True,
         )
+    print(f"q shape: {q.shape}")
+    print(f"k shape: {k.shape}")
+    print(f"v shape: {v.shape}")
+    print(f"c shape: {c.shape}")
+    print(f"S_dmask shape: {S_dmask.shape}")
+    print(f"output shape: {out.shape}")
+    
+    print("----------------------------------------------")
 
     print(f"Output max diff: {(out - out_ref).abs().max().item()}")
     print(f"Output mean diff: {(out - out_ref).abs().mean().item()}")
