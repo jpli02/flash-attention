@@ -628,6 +628,7 @@ def test_flash_attn_output(
             return_attn_probs=True,
         )
     else:
+        print("break 1")
         out, lse, S_dmask, c = flash_attn_func(
             q,
             k,
@@ -733,9 +734,11 @@ def test_flash_attn_output(
     print(f"q shape: {q.shape}")
     print(f"k shape: {k.shape}")
     print(f"v shape: {v.shape}")
+    print(f"output shape: {out.shape}")
+    
     print(f"c shape: {c.shape}")
     print(f"S_dmask shape: {S_dmask.shape}")
-    print(f"output shape: {out.shape}")
+    print(f"attn_pt shape: {attn_pt.shape}")
     
     print("----------------------------------------------")
 
@@ -743,6 +746,12 @@ def test_flash_attn_output(
     print(f"Output mean diff: {(out - out_ref).abs().mean().item()}")
     print(f"Pytorch max diff: {(out_pt - out_ref).abs().max().item()}")
     print(f"Pytorch mean diff: {(out_pt - out_ref).abs().mean().item()}")
+    
+    print(f"S_dmask max diff: {(S_dmask - attn_pt).abs().max().item()}")
+    print(f"S_dmask mean diff: {(S_dmask - attn_pt).abs().mean().item()}")
+    
+    print("----------------------------------------------")
+    
     if dropout_p > 0.0:
         print(f"Attention max diff: {(attn - attn_ref).abs().max().item()}")
         print(f"Attention Pytorch max diff: {(attn_pt - attn_ref).abs().max().item()}")
@@ -798,7 +807,8 @@ def test_flash_attn_output(
     # Check that FlashAttention's numerical error is at most twice the numerical error
     # of a Pytorch implementation.
     assert (out - out_ref).abs().max().item() <= 2 * (out_pt - out_ref).abs().max().item()
-
+    assert (S_dmask - attn_pt).abs().max().item() <= 2 * (S_dmask - attn_pt).abs().max().item()
+    
     if dropout_p > 0.0:
         assert (attn - attn_ref).abs().max().item() <= 2 * (attn_pt - attn_ref).abs().max().item()
         # With alibi, many of the prob values are 0.0 & -0.0 so dropout_fraction isn't accurate
