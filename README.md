@@ -3,6 +3,38 @@ This repository provides the official implementation of FlashAttention and
 FlashAttention-2 from the
 following papers.
 
+## Updates: For col-wise accumlated attention score:
+To build the flash_attn follow the steps below
+
+```git checkout accum
+pip install . --no-build-isolation -v
+```
+
+c is the accumulated attention score that can be used for methods like H2O.
+```
+from flash_attn import (
+    flash_attn_func,
+    flash_attn_kvpacked_func,
+    flash_attn_qkvpacked_func,
+    flash_attn_varlen_func,
+    flash_attn_varlen_kvpacked_func,
+    flash_attn_varlen_qkvpacked_func,
+    flash_attn_with_kvcache,
+)
+
+out, lse, S_dmask, c = flash_attn_func(
+            q,
+            k,
+            v,
+            dropout_p=0.00000001,
+            return_attn_probs=True,
+        )
+
+```
+
+Please note that in current version, many datatypes and methods are disabled because of the compiling time.
+You should expect 20-30 mins for compiling the files.
+
 **FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness**  
 Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, Christopher Ré  
 Paper: https://arxiv.org/abs/2205.14135  
