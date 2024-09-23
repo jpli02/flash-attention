@@ -10,7 +10,7 @@ To build the flash_attn follow the steps below
 pip install . --no-build-isolation -v
 ```
 
-c is the accumulated attention score that can be used for methods like H2O.
+S_mask is the attention score map by softmax(QK), use this instead.
 ```
 from flash_attn import (
     flash_attn_func,
