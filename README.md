@@ -9,7 +9,8 @@ To build the flash_attn follow the steps below
 ```git checkout accum
 pip install . --no-build-isolation -v
 ```
-
+There is something wrong with c. 
+But using S_mask still shows mem saving.
 S_mask is the attention score map by softmax(QK), use this instead.
 ```
 from flash_attn import (
