@@ -41,6 +41,7 @@ Please note that in current version, many datatypes and methods are disabled bec
 You should expect 20-30 mins for compiling the files.
 
 To compile more data types and dim, change csrc/flash_attn/src/static_switch.h, and remove comment in flash_fwd_launch_template.h
+
 **FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness**  
 Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, Christopher Ré  
 Paper: https://arxiv.org/abs/2205.14135  
