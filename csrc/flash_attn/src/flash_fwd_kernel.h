@@ -22,6 +22,9 @@ namespace flash {
 
 using namespace cute;
 
+__device__ __forceinline__ void atomicAdd_half(cutlass::half_t* address, cutlass::half_t val) {
+    
+}
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Return_softmax, typename Params>
@@ -168,6 +171,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     Tensor tSgS  = thr_mma.partition_C(gP);
     // Modified: for col-wise accum score
     Tensor tSgC  = thr_mma.partition_C(gC);
+    // if (cute::thread0()) {print(tSgC.layout()); printf("\n");}
 
 
     Tensor acc_o = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kHeadDim>>{});  // MMA, MMA_M, MMA_K
@@ -340,6 +344,24 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             tSgS.data() = tSgS.data() + (-kBlockN);
         
         }
+
+         /** accum score modification */
+
+        Tensor rC_drop = make_fragment_like(rP);
+
+        cute::copy(rP, rC_drop);
+        // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+        //     rC_drop, block_row_idx, block_col_idx, kNWarps
+        // );
+        #pragma unroll
+        for (int idx = 0; idx < size(tSgC); ++idx) {
+            tSgC(idx) += rC_drop(idx);
+        }
+
+        tSgC.data() = tSgC.data() + (-kBlockN);
+
+        /** accum score modification */
+
         if (Is_dropout) {
             dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
         }
@@ -399,6 +421,25 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             cute::copy(rP_drop, tSgS);
             tSgS.data() = tSgS.data() + (-kBlockN);
         }
+
+        /** accum score modification */
+
+        Tensor rC_drop = make_fragment_like(rP);
+
+        cute::copy(rP, rC_drop);
+        // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+        //     rC_drop, block_row_idx, block_col_idx, kNWarps
+        // );
+        
+        #pragma unroll
+        for (int idx = 0; idx < size(tSgC); ++idx) {
+            tSgC(idx) += rC_drop(idx);
+        }
+        
+        tSgC.data() = tSgC.data() + (-kBlockN);
+        /** accum score modification */
+
+
         if (Is_dropout) {
             dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
         }
