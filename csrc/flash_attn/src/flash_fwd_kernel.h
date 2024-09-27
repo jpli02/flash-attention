@@ -350,9 +350,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         Tensor rC_drop = make_fragment_like(rP);
 
         cute::copy(rP, rC_drop);
-        // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-        //     rC_drop, block_row_idx, block_col_idx, kNWarps
-        // );
+        dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+            rC_drop, block_row_idx, block_col_idx, kNWarps
+        );
         #pragma unroll
         for (int idx = 0; idx < size(tSgC); ++idx) {
             tSgC(idx) += rC_drop(idx);
@@ -427,9 +427,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         Tensor rC_drop = make_fragment_like(rP);
 
         cute::copy(rP, rC_drop);
-        // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-        //     rC_drop, block_row_idx, block_col_idx, kNWarps
-        // );
+        dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+            rC_drop, block_row_idx, block_col_idx, kNWarps
+        );
         
         #pragma unroll
         for (int idx = 0; idx < size(tSgC); ++idx) {

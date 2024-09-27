@@ -750,6 +750,24 @@ def test_flash_attn_output(
     print(f"S_dmask max diff: {(S_dmask - attn_pt).abs().max().item()}")
     print(f"S_dmask mean diff: {(S_dmask - attn_pt).abs().mean().item()}")
     
+    b, n_head, blockSize, s = c.shape
+    c_score = c.view(b * n_head, blockSize, s)
+    c_score = torch.sum(c_score, dim=1)
+    
+    mask_b, mask_n_head, mask_blockSize, mask_s = S_dmask.shape
+    S_dmask_score = S_dmask.view(mask_b * mask_n_head, mask_blockSize, mask_s)
+    S_dmask_score = torch.sum(S_dmask_score, dim=1)
+    
+    attn_pt_score = attn_pt.view(mask_b * mask_n_head, mask_blockSize, mask_s)
+    attn_pt_score = torch.sum(attn_pt_score, dim = 1)
+    print("compare c_score and S_dmask score in dim = 1 sum: \n")
+    print(f"accum score max diff: {(c_score - S_dmask_score).abs().max().item()}")
+    print(f"accum score mean diff: {(c_score - S_dmask_score).abs().mean().item()}")
+    
+    print("compare c_score and pytorch score in dim = 1 sum: \n")
+    print(f"accum score max diff: {(c_score - S_dmask_score).abs().max().item()}")
+    print(f"accum score mean diff: {(c_score - S_dmask_score).abs().mean().item()}")
+    
     print("----------------------------------------------")
     
     if dropout_p > 0.0:
