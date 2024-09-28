@@ -359,7 +359,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         }
 
         tSgC.data() = tSgC.data() + (-kBlockN);
-
+        __syncthreads();
         /** accum score modification */
 
         if (Is_dropout) {
@@ -437,8 +437,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         }
         
         tSgC.data() = tSgC.data() + (-kBlockN);
+        __syncthreads();
         /** accum score modification */
-
 
         if (Is_dropout) {
             dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
