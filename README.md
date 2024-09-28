@@ -9,13 +9,8 @@ To build the flash_attn follow the steps below
 ```git checkout accum
 pip install . --no-build-isolation -v
 ```
-There is something wrong with c. 
 
-
-But using S_mask still shows mem saving.
-
-
-S_mask is the attention score map by softmax(QK), use this instead.
+c is the  [b, n_head, 128, seq_len] shape, sum across dim=2 to get col-wise accum attention score
 ```
 from flash_attn import (
     flash_attn_func,
@@ -27,20 +22,20 @@ from flash_attn import (
     flash_attn_with_kvcache,
 )
 
-out, lse, S_dmask, c = flash_attn_func(
+out, c = flash_attn_func(
             q,
             k,
             v,
-            dropout_p=0.00000001,
-            return_attn_probs=True,
+            dropout_p,
+            return_attn_probs=False,
         )
 
 ```
 
-Please note that in current version, many datatypes and methods are disabled because of the compiling time.
+Please note that in current version, many datatypes and head_dims are disabled because of the compiling time.
 You should expect 20-30 mins for compiling the files.
 
-To compile more data types and dim, change csrc/flash_attn/src/static_switch.h, and remove comment in flash_fwd_launch_template.h
+To compile more data types and dim, remove comment in flash_fwd_launch_template.h and flash_api.cpp
 
 **FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness**  
 Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, Christopher Ré  
