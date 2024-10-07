@@ -581,7 +581,7 @@ def get_dropout_fraction(
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
 # @pytest.mark.parametrize("dropout_p", [0.0, 0.17])
-@pytest.mark.parametrize("dropout_p", [0.17])
+@pytest.mark.parametrize("dropout_p", [0.0])
 def test_flash_attn_output(
     seqlen_q, seqlen_k, d, dropout_p, causal, local, alibi, deterministic, mha_type, dtype, kvpacked
 ):
@@ -740,6 +740,7 @@ def test_flash_attn_output(
     # print(f"S_dmask shape: {S_dmask.shape}")
     print(f"attn_pt shape: {attn_pt.shape}")
     
+    # print(f"c atten map: {c[0][0][127]}")
     print("----------------------------------------------")
 
     print(f"Output max diff: {(out - out_ref).abs().max().item()}")
@@ -761,11 +762,21 @@ def test_flash_attn_output(
     # print(f"accum score max diff: {(c_score - S_dmask_score).abs().max().item()}")
     # print(f"accum score mean diff: {(c_score - S_dmask_score).abs().mean().item()}")
     
+    # print(f"c score: {c_score[3]}")
+    # print(f"attn score: {attn_pt_score[3]}")
+    print("----------------------------------------------")
+    
     print("compare c_score and pytorch score in dim = 1 sum: \n")
     print(f"accum score max diff: {(c_score - attn_pt_score).abs().max().item()}")
     print(f"accum score mean diff: {(c_score - attn_pt_score).abs().mean().item()}")
     
     print("----------------------------------------------")
+    
+    c_score2 = torch.sum(c, dim=2)
+    attn_pt_score2 = torch.sum(attn_pt, dim = 2)
+    
+    # print(f"c score2 {c_score2[0][0]}")
+    # print(f"attnpt score 2: {attn_pt_score2[0][0]}")
     
     if dropout_p > 0.0:
         print(f"Attention max diff: {(attn - attn_ref).abs().max().item()}")

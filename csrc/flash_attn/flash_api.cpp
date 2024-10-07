@@ -430,12 +430,12 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
     at::Tensor p;
     // Only return softmax if there's dropout to reduce compilation time
     if (return_softmax) {
-        TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
+        // TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
         p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
     }
 
     at::Tensor c;
-    TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
+    // TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
     c = torch::empty({ batch_size, num_heads, 128, seqlen_k_rounded }, opts);
     
     Flash_fwd_params params;

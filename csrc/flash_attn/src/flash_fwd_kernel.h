@@ -22,9 +22,6 @@ namespace flash {
 
 using namespace cute;
 
-__device__ __forceinline__ void atomicAdd_half(cutlass::half_t* address, cutlass::half_t val) {
-    
-}
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Return_softmax, typename Params>
@@ -107,7 +104,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         }
         return;
     }
-    // if (tidx == 0) { printf("m_block = %d, n_block_min = %d, n_block_max = %d\n", m_block, n_block_min, n_block_max); }
+    if (tidx == 0) { printf("m_block = %d, n_block_min = %d, n_block_max = %d\n", m_block, n_block_min, n_block_max); }
 
     // We iterate over the blocks in reverse order. This is because the last block is the only one
     // that needs masking when we read K and V from global memory. Moreover, iterating in reverse
@@ -115,6 +112,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     const index_t row_offset_p = ((bidb * params.h + bidh) * params.seqlen_q_rounded
         + m_block * kBlockM) * params.seqlen_k_rounded + (n_block_max - 1) * kBlockN;
+
+    const index_t row_offset_c = (bidb * params.h + bidh) * 128
+        * params.seqlen_k_rounded + (n_block_max - 1) * kBlockN;
 
     Tensor mQ = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.q_ptr)
                                           + binfo.q_offset(params.q_batch_stride, params.q_row_stride, bidb)),
@@ -135,7 +135,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     Tensor gV = local_tile(mV(_, bidh / params.h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
                            make_coord(_, 0));  // (kBlockN, kHeadDim, nblocksN)
     // Modified: for col-wise accum score
-    Tensor gC = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.c_ptr)),
+    Tensor gC = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.c_ptr) + row_offset_c),
                             Shape<Int<kBlockM>, Int<kBlockN>>{},
                             make_stride(params.seqlen_k_rounded, _1{}));
 
@@ -291,6 +291,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     #pragma unroll
     for (int masking_step = 0; masking_step < n_masking_steps; ++masking_step, --n_block) {
         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
+        // if (cute::thread0()) {print("acc_s layout \n", acc_s.layout()); printf("\n");}
+
         clear(acc_s);
         flash::cp_async_wait<0>();
         __syncthreads();
@@ -344,17 +346,20 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             tSgS.data() = tSgS.data() + (-kBlockN);
         
         }
-
          /** accum score modification */
-
-        Tensor rC_drop = make_fragment_like(rP);
-
-        cute::copy(rP, rC_drop);
+        int block_row_idx_c = (kBlockM / 16) + tidx / 32;
+        int block_col_idx_c = n_block * (kBlockN / 32);
+        // Tensor rC = acc_s;
+        Tensor rC = flash::convert_type<Element>(acc_s);
+        Tensor rC_drop = make_fragment_like(rC);
+        cute::copy(rC, rC_drop);
         dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-            rC_drop, block_row_idx, block_col_idx, kNWarps
+            rC_drop, block_row_idx_c, block_col_idx_c, kNWarps
         );
+
         #pragma unroll
         for (int idx = 0; idx < size(tSgC); ++idx) {
+            // atomicAdd(&(tSgC(idx)), rC_drop(idx));
             tSgC(idx) += rC_drop(idx);
         }
 
@@ -369,9 +374,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         // Reshape rP from (MMA=4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)
         // if using m16n8k16 or (4, MMA_M, MMA_N) if using m16n8k8.
         Tensor tOrP = make_tensor(rP.data(), flash::convert_layout_acc_Aregs<Kernel_traits::TiledMma>(rP.layout()));
-        // if (cute::thread0()) { print(tOrP); }
         flash::gemm_rs(acc_o, tOrP, tOrVt, tOsVt, tiled_mma, smem_tiled_copy_V, smem_thr_copy_V);
-        // if (cute::thread0()) { print(scores); }
 
         // This check is at the end of the loop since we always have at least 1 iteration
         if (n_masking_steps > 1 && n_block <= n_block_min) {
@@ -423,19 +426,22 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         }
 
         /** accum score modification */
-
-        Tensor rC_drop = make_fragment_like(rP);
-
-        cute::copy(rP, rC_drop);
+        int block_row_idx_c = (kBlockM / 16) + tidx / 32;
+        int block_col_idx_c = n_block * (kBlockN / 32);
+        // Tensor rC = acc_s;
+        Tensor rC = flash::convert_type<Element>(acc_s);
+        Tensor rC_drop = make_fragment_like(rC);
+        cute::copy(rC, rC_drop);
         dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-            rC_drop, block_row_idx, block_col_idx, kNWarps
+            rC_drop, block_row_idx_c, block_col_idx_c, kNWarps
         );
-        
+
         #pragma unroll
         for (int idx = 0; idx < size(tSgC); ++idx) {
+            // atomicAdd(&(tSgC(idx)), rC_drop(idx));
             tSgC(idx) += rC_drop(idx);
         }
-        
+
         tSgC.data() = tSgC.data() + (-kBlockN);
         __syncthreads();
         /** accum score modification */
@@ -1251,7 +1257,6 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
         }
         tOgOaccum.data() = tOgOaccum.data() + params.b * params.h * params.seqlen_q * params.d_rounded;
     }
-    // if (cute::thread0()) { print_tensor(tOrO); }
 
     Tensor rO = flash::convert_type<Element>(tOrO);
     // Write to gO
