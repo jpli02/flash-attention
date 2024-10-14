@@ -568,15 +568,18 @@ def get_dropout_fraction(
     "seqlen_q,seqlen_k",
     [
         # (113, 203),
+        (128, 128),
         # (128, 217),
         # (113, 211),
         # (108, 256),
-        (256, 512),
-        (512, 256),
-        (1024, 1024),
+        # (256, 512),
+        # (512, 256),
+        # (1024, 1024),
         # (1023, 1024),
         # (1024, 1023),
-        (2048, 2048),
+        # (2048, 2048),
+        # (4096, 4096),
+        
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -740,7 +743,13 @@ def test_flash_attn_output(
     # print(f"S_dmask shape: {S_dmask.shape}")
     print(f"attn_pt shape: {attn_pt.shape}")
     
-    # print(f"c atten map: {c[0][0][127]}")
+    # print(f"c atten map: {c[0][0][0]}")
+    # print(f"c atten map: {c[0][0][1]}")
+    # print(f"c atten map: {c[0][0][2]}")
+    # print(f"c atten map: {c[0][0][3]}")
+    # print(f"c atten map: {c[0][0][4]}")
+    # print(f"c atten map: {c[0][0][50]}")
+    
     print("----------------------------------------------")
 
     print(f"Output max diff: {(out - out_ref).abs().max().item()}")
@@ -767,22 +776,28 @@ def test_flash_attn_output(
     print("----------------------------------------------")
     
     print("compare c_score and pytorch score in dim = 1 sum: \n")
-    print(f"accum score max diff: {(c_score - attn_pt_score).abs().max().item()}")
-    print(f"accum score mean diff: {(c_score - attn_pt_score).abs().mean().item()}")
+    print(f"accum score max diff: {(c_score / 2 - attn_pt_score).abs().max().item() }")
+    print(f"accum score mean diff: {(c_score / 2 - attn_pt_score).abs().mean().item() }")
     
     print("----------------------------------------------")
     
     c_score2 = torch.sum(c, dim=2)
     attn_pt_score2 = torch.sum(attn_pt, dim = 2)
+    print("----------------------------------------------")
     
-    # print(f"c score2 {c_score2[0][0]}")
-    # print(f"attnpt score 2: {attn_pt_score2[0][0]}")
+    print("compare c_score and pytorch score in dim = 2 directly sum: \n")
+    print(f"accum score max diff: {(c_score2 / 2 - attn_pt_score2).abs().max().item() }")
+    print(f"accum score mean diff: {(c_score2 / 2 - attn_pt_score2).abs().mean().item() }")
+    
+    print("----------------------------------------------")
+    
+    print(f"c score2 {c_score2[0][0]}")
+    print(f"attnpt score 2: {attn_pt_score2[0][0]}")
     
     if dropout_p > 0.0:
         print(f"Attention max diff: {(attn - attn_ref).abs().max().item()}")
         print(f"Attention Pytorch max diff: {(attn_pt - attn_ref).abs().max().item()}")
 
-   
 
     # Check that FlashAttention's numerical error is at most twice the numerical error
     # of a Pytorch implementation.

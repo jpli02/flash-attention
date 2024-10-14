@@ -189,3 +189,4 @@ template<typename T, int Headdim> void run_mha_fwd_(Flash_fwd_params &params, cu
 template<typename T, int Headdim> void run_mha_fwd_splitkv_dispatch(Flash_fwd_params &params, cudaStream_t stream);
 
 template<typename T, int Headdim> void run_mha_bwd_(Flash_bwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim> void run_mha_fwd_accum_(Flash_fwd_params &params, cudaStream_t stream);

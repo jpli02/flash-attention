@@ -24,6 +24,14 @@ void run_mha_fwd_<{DTYPE}, {HEAD_DIM}>(Flash_fwd_params &params, cudaStream_t st
 }}
 """
 
+KERNEL_IMPL_TEMPLATE_FWD_ACCUM = """#include "flash_fwd_launch_template.h"
+
+template<>
+void run_mha_fwd_accum_<{DTYPE}, {HEAD_DIM}>(Flash_fwd_params &params, cudaStream_t stream) {{
+    run_mha_fwd_hdim{HEAD_DIM}_accum<{DTYPE}>(params, stream);
+}}
+"""
+
 KERNEL_IMPL_TEMPLATE_FWD_SPLIT = """#include "flash_fwd_launch_template.h"
 
 template void run_mha_fwd_splitkv_dispatch<{DTYPE}, {HEAD_DIM}>(Flash_fwd_params &params, cudaStream_t stream);
@@ -55,6 +63,10 @@ class Kernel:
             return KERNEL_IMPL_TEMPLATE_BWD.format(
                 DTYPE=DTYPE_MAP[self.dtype], HEAD_DIM=self.head_dim
             )
+        elif self.direction == "accum":
+            return KERNEL_IMPL_TEMPLATE_FWD_ACCUM.format(
+                DTYPE=DTYPE_MAP[self.dtype], HEAD_DIM=self.head_dim
+            )
         else:
             return KERNEL_IMPL_TEMPLATE_FWD_SPLIT.format(
                 DTYPE=DTYPE_MAP[self.dtype], HEAD_DIM=self.head_dim
@@ -67,7 +79,7 @@ class Kernel:
 
 def get_all_kernels() -> List[Kernel]:
     for dtype, head_dim, sm in itertools.product(DTYPE_MAP.keys(), HEAD_DIMENSIONS, SM):
-        for direction in ["fwd", "bwd", "fwd_split"]:
+        for direction in ["fwd", "bwd", "fwd_split", "accum"]:
             yield Kernel(sm=sm, dtype=dtype, head_dim=head_dim, direction=direction)
 
 
