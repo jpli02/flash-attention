@@ -799,8 +799,8 @@ inline __device__ void compute_attn_1rowblock_accum(const Params &params, const 
 
         /** fp16 version */
         Tensor rC = flash::convert_type<Element>(acc_s);
-        int block_row_idx_c = (kBlockM / 16) + tidx / 32;
-        int block_col_idx_c = n_block * (kBlockN / 32);
+        // int block_row_idx_c = (kBlockM / 16) + tidx / 32;
+        // int block_col_idx_c = n_block * (kBlockN / 32);
         Tensor rC_drop = make_fragment_like(rC);
         cute::copy(rC, rC_drop);
         // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
@@ -899,8 +899,8 @@ inline __device__ void compute_attn_1rowblock_accum(const Params &params, const 
 
         /** fp16 version */
         Tensor rC = flash::convert_type<Element>(acc_s);
-        int block_row_idx_c = (kBlockM / 16) + tidx / 32;
-        int block_col_idx_c = n_block * (kBlockN / 32);
+        // int block_row_idx_c = (kBlockM / 16) + tidx / 32;
+        // int block_col_idx_c = n_block * (kBlockN / 32);
         Tensor rC_drop = make_fragment_like(rC);
         cute::copy(rC, rC_drop);
         // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
