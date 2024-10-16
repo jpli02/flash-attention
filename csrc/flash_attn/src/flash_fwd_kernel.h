@@ -346,25 +346,47 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             tSgS.data() = tSgS.data() + (-kBlockN);
         
         }
-         /** accum score modification */
+        
+        /** accum score modification */
+
+        /** fp16 version */
+        Tensor rC = flash::convert_type<Element>(acc_s);
         int block_row_idx_c = (kBlockM / 16) + tidx / 32;
         int block_col_idx_c = n_block * (kBlockN / 32);
-        // Tensor rC = acc_s;
-        Tensor rC = flash::convert_type<Element>(acc_s);
         Tensor rC_drop = make_fragment_like(rC);
         cute::copy(rC, rC_drop);
-        dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-            rC_drop, block_row_idx_c, block_col_idx_c, kNWarps
-        );
+        // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+        //     rC_drop, block_row_idx_c, block_col_idx_c, kNWarps
+        // );
 
+        __syncthreads();
         #pragma unroll
         for (int idx = 0; idx < size(tSgC); ++idx) {
-            // atomicAdd(&(tSgC(idx)), rC_drop(idx));
             tSgC(idx) += rC_drop(idx);
         }
 
-        tSgC.data() = tSgC.data() + (-kBlockN);
         __syncthreads();
+        tSgC.data() = tSgC.data() + (-kBlockN);
+
+        /** fp16 version */
+
+
+        /** fp32 version to avoid race condition */
+
+        // Tensor rC = acc_s;
+        // Tensor rC_drop = make_fragment_like(rC);
+        // cute::copy(rC, rC_drop);
+        // __syncthreads();
+        // #pragma unroll
+        // for (int idx = 0; idx < size(tSgC); ++idx) {
+            // atomicAdd(&(tSgC(idx)), rC_drop(idx));
+        // }
+
+        // __syncthreads();
+        // tSgC.data() = tSgC.data() + (-kBlockN);
+
+        /** fp32 version to avoid race condition */
+
         /** accum score modification */
 
         if (Is_dropout) {
@@ -425,25 +447,46 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             tSgS.data() = tSgS.data() + (-kBlockN);
         }
 
-        /** accum score modification */
+                /** accum score modification */
+
+        /** fp16 version */
+        Tensor rC = flash::convert_type<Element>(acc_s);
         int block_row_idx_c = (kBlockM / 16) + tidx / 32;
         int block_col_idx_c = n_block * (kBlockN / 32);
-        // Tensor rC = acc_s;
-        Tensor rC = flash::convert_type<Element>(acc_s);
         Tensor rC_drop = make_fragment_like(rC);
         cute::copy(rC, rC_drop);
-        dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-            rC_drop, block_row_idx_c, block_col_idx_c, kNWarps
-        );
+        // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+        //     rC_drop, block_row_idx_c, block_col_idx_c, kNWarps
+        // );
 
+        __syncthreads();
         #pragma unroll
         for (int idx = 0; idx < size(tSgC); ++idx) {
-            // atomicAdd(&(tSgC(idx)), rC_drop(idx));
             tSgC(idx) += rC_drop(idx);
         }
 
-        tSgC.data() = tSgC.data() + (-kBlockN);
         __syncthreads();
+        tSgC.data() = tSgC.data() + (-kBlockN);
+
+        /** fp16 version */
+
+
+        /** fp32 version to avoid race condition */
+
+        // Tensor rC = acc_s;
+        // Tensor rC_drop = make_fragment_like(rC);
+        // cute::copy(rC, rC_drop);
+        // __syncthreads();
+        // #pragma unroll
+        // for (int idx = 0; idx < size(tSgC); ++idx) {
+            // atomicAdd(&(tSgC(idx)), rC_drop(idx));
+        // }
+
+        // __syncthreads();
+        // tSgC.data() = tSgC.data() + (-kBlockN);
+
+        /** fp32 version to avoid race condition */
+
         /** accum score modification */
 
         if (Is_dropout) {
