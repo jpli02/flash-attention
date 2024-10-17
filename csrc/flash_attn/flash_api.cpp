@@ -37,7 +37,6 @@ void set_params_fprop(Flash_fwd_params &params,
                       void *cu_seqlens_q_d,
                       void *cu_seqlens_k_d,
                       void *seqused_k,
-                      void *p_d,
                       void *c_d,
                       void *softmax_lse_d,
                       float p_dropout,
@@ -82,7 +81,7 @@ void set_params_fprop(Flash_fwd_params &params,
     params.seqused_k = static_cast<int *>(seqused_k);
 
     // P = softmax(QK^T)
-    params.p_ptr = p_d;
+    // params.p_ptr = p_d;
     params.c_ptr = c_d;
 
 
@@ -178,7 +177,6 @@ void set_params_dgrad(Flash_bwd_params &params,
                      q, k, v, out,
                      cu_seqlens_q_d,
                      cu_seqlens_k_d,
-                     nullptr,
                      nullptr,
                      nullptr,
                      softmax_lse_d,
@@ -429,14 +427,15 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
     auto softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
     at::Tensor p;
     // Only return softmax if there's dropout to reduce compilation time
-    if (return_softmax) {
-        // TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
-        p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
-    }
+    // if (return_softmax) {
+    //     // TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
+    //     p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
+    // }
 
     at::Tensor c;
-    // TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
-    c = torch::empty({ batch_size, num_heads, 128, seqlen_k_rounded }, opts);
+    if (return_softmax) {
+        c = torch::empty({ batch_size, num_heads, 128, seqlen_k_rounded }, opts);
+    }
     
     Flash_fwd_params params;
     set_params_fprop(params,
@@ -449,8 +448,7 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
                      /*cu_seqlens_q_d=*/nullptr,
                      /*cu_seqlens_k_d=*/nullptr,
                      /*seqused_k=*/nullptr,
-                     return_softmax ? p.data_ptr() : nullptr,
-                     c.data_ptr(),
+                     return_softmax ? c.data_ptr() : nullptr,
                      softmax_lse.data_ptr(),
                      p_dropout,
                      softmax_scale,
@@ -502,7 +500,7 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
         q_padded = q_padded.transpose(1, 2).reshape({batch_size, 1, num_heads_k * seqlen_q, head_size_og});
         softmax_lse = softmax_lse.reshape({batch_size, num_heads_k * seqlen_q, 1});
     }
-    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, c, rng_state};
+    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, c, rng_state};
 }
 
 std::vector<at::Tensor>
@@ -664,20 +662,20 @@ mha_varlen_fwd(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \s
     auto softmax_lse = torch::empty({batch_size, num_heads, max_seqlen_q}, opts.dtype(at::kFloat));
     at::Tensor p;
     // Only return softmax if there's dropout to reduce compilation time
-    if (return_softmax) {
-        TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
-        p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
-    }
+    // if (return_softmax) {
+    //     TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
+    //     p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
+    // }
 
     at::Tensor c;
-    TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
-    c = torch::empty({ batch_size, num_heads, 128, seqlen_k_rounded }, opts);
-    
+    if (return_softmax) {
+        c = torch::empty({ batch_size, num_heads, 128, seqlen_k_rounded }, opts);
+    }
 
     if (zero_tensors) {
         out.zero_();
         softmax_lse.fill_(-std::numeric_limits<float>::infinity());
-        if (return_softmax) {p.zero_();}
+        if (return_softmax) {c.zero_();}
     }
 
     Flash_fwd_params params;
@@ -691,8 +689,7 @@ mha_varlen_fwd(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \s
                      cu_seqlens_q_d,
                      cu_seqlens_k.data_ptr(),
                      seqused_k.has_value() ? seqused_k.value().data_ptr() : nullptr,
-                     return_softmax ? p.data_ptr() : nullptr,
-                     c.data_ptr(),
+                     return_softmax ? c.data_ptr() : nullptr,
                      softmax_lse.data_ptr(),
                      p_dropout,
                      softmax_scale,
@@ -757,7 +754,7 @@ mha_varlen_fwd(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \s
         softmax_lse = softmax_lse.reshape({batch_size, num_heads_k * max_seqlen_q, 1});
     }
 
-    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, c, rng_state};
+    return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, c, rng_state};
 }
 
 void run_mha_bwd(Flash_bwd_params &params, cudaStream_t stream) {

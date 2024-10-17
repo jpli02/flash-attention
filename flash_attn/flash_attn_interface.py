@@ -48,8 +48,7 @@ def _flash_attn_forward(
 ):
     maybe_contiguous = lambda x: x.contiguous() if x.stride(-1) != 1 else x
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    #out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, c, rng_state
-    out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = flash_attn_cuda.fwd(
+    out, q, k, v, out_padded, softmax_lse, c, rng_state = flash_attn_cuda.fwd(
         q,
         k,
         v,
@@ -63,7 +62,8 @@ def _flash_attn_forward(
         return_softmax,
         None,
     )
-    return out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state
+    print(f"_flash_attn_forward, return_softmax is {return_softmax}, c is {c}")
+    return out, q, k, v, out_padded, softmax_lse, c, rng_state
 
 
 def _flash_attn_varlen_forward(
@@ -84,7 +84,7 @@ def _flash_attn_varlen_forward(
 ):
     maybe_contiguous = lambda x: x.contiguous() if x.stride(-1) != 1 else x
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
-    out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = flash_attn_cuda.varlen_fwd(
+    out, q, k, v, out_padded, softmax_lse, c, rng_state = flash_attn_cuda.varlen_fwd(
         q,
         k,
         v,
@@ -107,7 +107,7 @@ def _flash_attn_varlen_forward(
     )
     # if out.isnan().any() or softmax_lse.isnan().any():
     #     breakpoint()
-    return out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state
+    return out, q, k, v, out_padded, softmax_lse, c, rng_state
 
 
 def _flash_attn_backward(
@@ -224,7 +224,7 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = qkv.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = _flash_attn_forward(
+        out, q, k, v, out_padded, softmax_lse, c, rng_state = _flash_attn_forward(
             qkv[:, :, 0],
             qkv[:, :, 1],
             qkv[:, :, 2],
@@ -242,7 +242,7 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return out if not return_softmax else (out, softmax_lse, S_dmask, c)
+        return out if not return_softmax else (out, softmax_lse, c)
 
     @staticmethod
     def backward(ctx, dout, *args):
@@ -288,7 +288,7 @@ class FlashAttnVarlenQKVPackedFunc(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = qkv.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = _flash_attn_varlen_forward(
+        out, q, k, v, out_padded, softmax_lse, c, rng_state = _flash_attn_varlen_forward(
             qkv[:, 0],
             qkv[:, 1],
             qkv[:, 2],
@@ -312,7 +312,7 @@ class FlashAttnVarlenQKVPackedFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return out if not return_softmax else (out, softmax_lse, S_dmask, c)
+        return out if not return_softmax else (out, softmax_lse, c)
 
     @staticmethod
     def backward(ctx, dout, *args):
@@ -361,7 +361,7 @@ class FlashAttnKVPackedFunc(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = _flash_attn_forward(
+        out, q, k, v, out_padded, softmax_lse, c, rng_state = _flash_attn_forward(
             q,
             kv[:, :, 0],
             kv[:, :, 1],
@@ -379,7 +379,7 @@ class FlashAttnKVPackedFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return out if not return_softmax else (out, softmax_lse, S_dmask, c)
+        return out if not return_softmax else (out, c)
 
     @staticmethod
     def backward(ctx, dout, *args):
@@ -430,7 +430,7 @@ class FlashAttnVarlenKVPackedFunc(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = _flash_attn_varlen_forward(
+        out, q, k, v, out_padded, softmax_lse, c, rng_state = _flash_attn_varlen_forward(
             q,
             kv[:, 0],
             kv[:, 1],
@@ -457,7 +457,7 @@ class FlashAttnVarlenKVPackedFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return out if not return_softmax else (out, softmax_lse, S_dmask, c)
+        return out if not return_softmax else (out, softmax_lse, c)
 
     @staticmethod
     def backward(ctx, dout, *args):
@@ -509,7 +509,7 @@ class FlashAttnFunc(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = _flash_attn_forward(
+        out, q, k, v, out_padded, softmax_lse, c, rng_state = _flash_attn_forward(
             q,
             k,
             v,
@@ -518,7 +518,7 @@ class FlashAttnFunc(torch.autograd.Function):
             causal=causal,
             window_size=window_size,
             alibi_slopes=alibi_slopes,
-            return_softmax=return_softmax and dropout_p > 0,
+            return_softmax=return_softmax,
         )
         ctx.save_for_backward(q, k, v, out_padded, softmax_lse, rng_state)
         ctx.dropout_p = dropout_p
@@ -527,7 +527,7 @@ class FlashAttnFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return (out, c) if not return_softmax else (out, softmax_lse, S_dmask, c)
+        return out if not return_softmax else (out, c)
 
     @staticmethod
     def backward(ctx, dout, *args):
@@ -579,7 +579,7 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, c, rng_state = _flash_attn_varlen_forward(
+        out, q, k, v, out_padded, softmax_lse, c, rng_state = _flash_attn_varlen_forward(
             q,
             k,
             v,
@@ -592,7 +592,7 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
             causal=causal,
             window_size=window_size,
             alibi_slopes=alibi_slopes,
-            return_softmax=return_softmax and dropout_p > 0,
+            return_softmax=return_softmax,
             block_table=block_table,
         )
         ctx.save_for_backward(
@@ -606,7 +606,7 @@ class FlashAttnVarlenFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return (out, c) if not return_softmax else (out, softmax_lse, S_dmask, c)
+        return out if not return_softmax else (out, c)
 
     @staticmethod
     def backward(ctx, dout, *args):

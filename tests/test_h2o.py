@@ -547,7 +547,7 @@ def get_dropout_fraction(
 # @pytest.mark.parametrize("kvpacked", [True, False])
 @pytest.mark.parametrize("kvpacked", [False])
 # @pytest.mark.parametrize("dtype", ([torch.float16] if is_sm75 else [torch.float16, torch.bfloat16]))
-@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("dtype", [torch.float16])
 # @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("mha_type", ["mha"])
 # @pytest.mark.parametrize("deterministic", [False, True])
@@ -620,7 +620,7 @@ def test_flash_attn_output(
         alibi_slopes, attn_bias = None, None
 
     if kvpacked:
-        out, lse, S_dmask, c = flash_attn_kvpacked_func(
+        out, c = flash_attn_kvpacked_func(
             q,
             kv,
             dropout_p,
@@ -632,7 +632,7 @@ def test_flash_attn_output(
         )
     else:
         print("break 1")
-        out, lse, S_dmask, c = flash_attn_func(
+        a = flash_attn_func(
             q,
             k,
             v,
@@ -643,6 +643,9 @@ def test_flash_attn_output(
             deterministic=deterministic,
             return_attn_probs=True,
         )
+        out, c = a
+        print(len(a))
+        print(c)
     # if dropout_p > 0.0:
     #     S_dmask_converted = convert_flash_attn_S_to_softmax(
     #         S_dmask,
