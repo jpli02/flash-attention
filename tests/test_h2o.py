@@ -632,7 +632,7 @@ def test_flash_attn_output(
         )
     else:
         print("break 1")
-        a = flash_attn_func(
+        out, c = flash_attn_func(
             q,
             k,
             v,
@@ -643,9 +643,6 @@ def test_flash_attn_output(
             deterministic=deterministic,
             return_attn_probs=True,
         )
-        out, c = a
-        print(len(a))
-        print(c)
     # if dropout_p > 0.0:
     #     S_dmask_converted = convert_flash_attn_S_to_softmax(
     #         S_dmask,
