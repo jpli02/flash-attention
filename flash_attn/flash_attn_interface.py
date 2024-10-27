@@ -518,7 +518,7 @@ class FlashAttnFunc(torch.autograd.Function):
             causal=causal,
             window_size=window_size,
             alibi_slopes=alibi_slopes,
-            return_softmax=return_softmax and dropout_p > 0,
+            return_softmax=return_softmax 
         )
         ctx.save_for_backward(q, k, v, out_padded, softmax_lse, rng_state)
         ctx.dropout_p = dropout_p
@@ -527,7 +527,7 @@ class FlashAttnFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return out if not return_softmax else (out, softmax_lse, S_dmask, c)
+        return out if not return_softmax else (out, c)
 
     @staticmethod
     def backward(ctx, dout, *args):

@@ -168,10 +168,6 @@ void run_mha_fwd_splitkv_dispatch(Flash_fwd_params &params, cudaStream_t stream)
 
 template<typename T>
 void run_mha_fwd_hdim32(Flash_fwd_params &params, cudaStream_t stream) {
-    printf("\n ***************************** \n");
-    printf("\n break point jp run_mha_fwd_hdim32 \n");
-    printf("\n ***************************** \n");
-
     constexpr static int Headdim = 32;
     DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
         BOOL_SWITCH(params.is_causal, Is_causal, [&] {

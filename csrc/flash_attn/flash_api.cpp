@@ -428,15 +428,17 @@ mha_fwd(at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
 
     auto softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
     at::Tensor p;
+    at::Tensor c;
+
     // Only return softmax if there's dropout to reduce compilation time
     if (return_softmax) {
-        TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
-        p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
+        // TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
+        p = torch::empty({ 1, 1, 1, 1 }, opts);
+        // TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
+        c = torch::empty({ batch_size, num_heads, 128, seqlen_k_rounded }, opts);
     }
 
-    at::Tensor c;
-    TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
-    c = torch::empty({ batch_size, num_heads, 1, seqlen_k_rounded }, opts);
+    
     
     Flash_fwd_params params;
     set_params_fprop(params,
@@ -663,15 +665,16 @@ mha_varlen_fwd(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \s
 
     auto softmax_lse = torch::empty({batch_size, num_heads, max_seqlen_q}, opts.dtype(at::kFloat));
     at::Tensor p;
+    at::Tensor c;
     // Only return softmax if there's dropout to reduce compilation time
     if (return_softmax) {
-        TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
-        p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
+        // TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
+        p = torch::empty({ 1, 1, 1, 1 }, opts);
+        // TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
+        c = torch::empty({ batch_size, num_heads, 128, seqlen_k_rounded }, opts);
+    
     }
 
-    at::Tensor c;
-    TORCH_CHECK(p_dropout > 0.0f, "return col-accum softmax is only supported when p_dropout > 0.0");
-    c = torch::empty({ batch_size, num_heads, 1, seqlen_k_rounded }, opts);
     
 
     if (zero_tensors) {
