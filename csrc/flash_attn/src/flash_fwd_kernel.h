@@ -332,7 +332,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
         int block_col_idx = n_block * (kBlockN / 32);
         if (Return_softmax) {
-            printf("inside compute_attn_1rowblock: Return_softmax is true \n");
+            // printf("inside compute_attn_1rowblock: Return_softmax is true \n");
             Tensor rC = rP;
             Tensor rC_drop = make_fragment_like(rC);
             cute::copy(rC, rC_drop);
@@ -397,7 +397,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
         int block_col_idx = n_block * (kBlockN / 32);
         if (Return_softmax) {
-            printf("inside compute_attn_1rowblock: Return_softmax is true \n");
+            // printf("inside compute_attn_1rowblock: Return_softmax is true \n");
             Tensor rC = rP;
             Tensor rC_drop = make_fragment_like(rC);
             cute::copy(rC, rC_drop);

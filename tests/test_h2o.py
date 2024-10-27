@@ -572,12 +572,12 @@ def get_dropout_fraction(
         # (128, 217),
         # (113, 211),
         # (108, 256),
-        # (256, 512),
-        # (512, 256),
-        # (1024, 1024),
+        (256, 512),
+        (512, 256),
+        (1024, 1024),
         # (1023, 1024),
         # (1024, 1023),
-        # (2048, 2048),
+        (2048, 2048),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -751,8 +751,8 @@ def test_flash_attn_output(
     print(f"factor row {c[0][0][126] / attn_pt[0][0][126]}")
     print("------------------------------------------------")
     print("compare c_score and pytorch score in dim = 1 sum: \n")
-    print(f"accum score max diff: {(c_score - attn_pt_score).abs().max().item() }")
-    print(f"accum score mean diff: {(c_score - attn_pt_score).abs().mean().item() }")
+    print(f"accum score max diff: {(c_score / s - attn_pt_score).abs().max().item() }")
+    print(f"accum score mean diff: {(c_score / s - attn_pt_score).abs().mean().item() }")
     
     if dropout_p > 0.0:
         print(f"Attention max diff: {(attn - attn_ref).abs().max().item()}")
@@ -793,18 +793,18 @@ def test_flash_attn_output(
                 dk_pt,
                 dv_pt,
             ) = torch.autograd.grad(out_pt, (q, k, v), g)
-        print(f"dQ max diff: {(dq - dq_ref).abs().max().item()}")
-        print(f"dK max diff: {(dk - dk_ref).abs().max().item()}")
-        print(f"dV max diff: {(dv - dv_ref).abs().max().item()}")
-        print(f"dQ mean diff: {(dq - dq_ref).abs().mean().item()}")
-        print(f"dK mean diff: {(dk - dk_ref).abs().mean().item()}")
-        print(f"dV mean diff: {(dv - dv_ref).abs().mean().item()}")
-        print(f"dQ Pytorch max diff: {(dq_pt - dq_ref).abs().max().item()}")
-        print(f"dK Pytorch max diff: {(dk_pt - dk_ref).abs().max().item()}")
-        print(f"dV Pytorch max diff: {(dv_pt - dv_ref).abs().max().item()}")
-        print(f"dQ Pytorch mean diff: {(dq_pt - dq_ref).abs().mean().item()}")
-        print(f"dK Pytorch mean diff: {(dk_pt - dk_ref).abs().mean().item()}")
-        print(f"dV Pytorch mean diff: {(dv_pt - dv_ref).abs().mean().item()}")
+        # print(f"dQ max diff: {(dq - dq_ref).abs().max().item()}")
+        # print(f"dK max diff: {(dk - dk_ref).abs().max().item()}")
+        # print(f"dV max diff: {(dv - dv_ref).abs().max().item()}")
+        # print(f"dQ mean diff: {(dq - dq_ref).abs().mean().item()}")
+        # print(f"dK mean diff: {(dk - dk_ref).abs().mean().item()}")
+        # print(f"dV mean diff: {(dv - dv_ref).abs().mean().item()}")
+        # print(f"dQ Pytorch max diff: {(dq_pt - dq_ref).abs().max().item()}")
+        # print(f"dK Pytorch max diff: {(dk_pt - dk_ref).abs().max().item()}")
+        # print(f"dV Pytorch max diff: {(dv_pt - dv_ref).abs().max().item()}")
+        # print(f"dQ Pytorch mean diff: {(dq_pt - dq_ref).abs().mean().item()}")
+        # print(f"dK Pytorch mean diff: {(dk_pt - dk_ref).abs().mean().item()}")
+        # print(f"dV Pytorch mean diff: {(dv_pt - dv_ref).abs().mean().item()}")
 
     # Check that FlashAttention's numerical error is at most twice the numerical error
     # of a Pytorch implementation.
