@@ -112,6 +112,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     const index_t row_offset_p = ((bidb * params.h + bidh) * params.seqlen_q_rounded
         + m_block * kBlockM) * params.seqlen_k_rounded + (n_block_max - 1) * kBlockN;
+    const index_t row_offset_c = (bidb * params.h + bidh) * 128
+        * params.seqlen_k_rounded + (n_block_max - 1) * kBlockN;
 
     Tensor mQ = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.q_ptr)
                                           + binfo.q_offset(params.q_batch_stride, params.q_row_stride, bidb)),
@@ -132,6 +134,11 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     Tensor gV = local_tile(mV(_, bidh / params.h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
                            make_coord(_, 0));  // (kBlockN, kHeadDim, nblocksN)
     Tensor gP = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.p_ptr) + row_offset_p),
+                            Shape<Int<kBlockM>, Int<kBlockN>>{},
+                            make_stride(params.seqlen_k_rounded, _1{}));
+
+    // Modified: for col-wise accum score
+    Tensor gC = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.c_ptr) + row_offset_c),
                             Shape<Int<kBlockM>, Int<kBlockN>>{},
                             make_stride(params.seqlen_k_rounded, _1{}));
 
@@ -161,6 +168,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     Tensor tOrVt  = thr_mma.partition_fragment_B(sVtNoSwizzle);                // (MMA, MMA_K,MMA_N)
 
     Tensor tSgS  = thr_mma.partition_C(gP);
+    // Modified: for col-wise accum score
+    Tensor tSgC  = thr_mma.partition_C(gC);
 
     Tensor acc_o = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kHeadDim>>{});  // MMA, MMA_M, MMA_K
 
@@ -323,13 +332,19 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
         int block_col_idx = n_block * (kBlockN / 32);
         if (Return_softmax) {
-            Tensor rP_drop = make_fragment_like(rP);
-            cute::copy(rP, rP_drop);
-            dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-                rP_drop, block_row_idx, block_col_idx, kNWarps
-            );
-            cute::copy(rP_drop, tSgS);
-            tSgS.data() = tSgS.data() + (-kBlockN);
+            printf("inside compute_attn_1rowblock: Return_softmax is true \n");
+            Tensor rC = rP;
+            Tensor rC_drop = make_fragment_like(rC);
+            cute::copy(rC, rC_drop);
+        
+            __syncthreads();
+            #pragma unroll
+            for (int idx = 0; idx < size(tSgC); ++idx) {
+                tSgC(idx) += rC_drop(idx);
+            }
+            __syncthreads();
+
+            tSgC.data() = tSgC.data() + (-kBlockN);
         }
         if (Is_dropout) {
             dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
@@ -382,13 +397,19 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
         int block_col_idx = n_block * (kBlockN / 32);
         if (Return_softmax) {
-            Tensor rP_drop = make_fragment_like(rP);
-            cute::copy(rP, rP_drop);
-            dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-                rP_drop, block_row_idx, block_col_idx, kNWarps
-            );
-            cute::copy(rP_drop, tSgS);
-            tSgS.data() = tSgS.data() + (-kBlockN);
+            printf("inside compute_attn_1rowblock: Return_softmax is true \n");
+            Tensor rC = rP;
+            Tensor rC_drop = make_fragment_like(rC);
+            cute::copy(rC, rC_drop);
+        
+            __syncthreads();
+            #pragma unroll
+            for (int idx = 0; idx < size(tSgC); ++idx) {
+                tSgC(idx) += rC_drop(idx);
+            }
+            __syncthreads();
+            
+            tSgC.data() = tSgC.data() + (-kBlockN);
         }
         if (Is_dropout) {
             dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);

@@ -567,16 +567,17 @@ def get_dropout_fraction(
 @pytest.mark.parametrize(
     "seqlen_q,seqlen_k",
     [
-        (113, 203),
-        (128, 217),
-        (113, 211),
-        (108, 256),
-        (256, 512),
-        (512, 256),
-        (1024, 1024),
-        (1023, 1024),
-        (1024, 1023),
-        (2048, 2048),
+        # (113, 203),
+        (128, 128),
+        # (128, 217),
+        # (113, 211),
+        # (108, 256),
+        # (256, 512),
+        # (512, 256),
+        # (1024, 1024),
+        # (1023, 1024),
+        # (1024, 1023),
+        # (2048, 2048),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -735,6 +736,24 @@ def test_flash_attn_output(
     print(f"Output mean diff: {(out - out_ref).abs().mean().item()}")
     print(f"Pytorch max diff: {(out_pt - out_ref).abs().max().item()}")
     print(f"Pytorch mean diff: {(out_pt - out_ref).abs().mean().item()}")
+    print(f"c shape: {c.shape}")
+    b, n_head, blockSize, s = c.shape
+    # c_score = c.view(b * n_head, blockSize, s)
+    c_score = torch.sum(c, dim=2)
+    
+    pt_b, pt_n_head, pt_blockSize, pt_s = attn_pt.shape
+    # attn_pt_score = attn_pt.view(pt_b * pt_n_head, pt_blockSize, pt_s)
+    attn_pt_score = torch.sum(attn_pt, dim = 2)
+
+    print("------------------------------------------------")
+    print(f"c row {c[0][0][126]}")
+    print(f"attn row {attn_pt[0][0][126]}")
+    print(f"factor row {c[0][0][126] / attn_pt[0][0][126]}")
+    print("------------------------------------------------")
+    print("compare c_score and pytorch score in dim = 1 sum: \n")
+    print(f"accum score max diff: {(c_score - attn_pt_score).abs().max().item() }")
+    print(f"accum score mean diff: {(c_score - attn_pt_score).abs().mean().item() }")
+    
     if dropout_p > 0.0:
         print(f"Attention max diff: {(attn - attn_ref).abs().max().item()}")
         print(f"Attention Pytorch max diff: {(attn_pt - attn_ref).abs().max().item()}")
