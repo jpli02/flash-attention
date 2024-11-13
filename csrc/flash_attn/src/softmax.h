@@ -90,6 +90,41 @@ __forceinline__ __device__ void scale_apply_exp2(Tensor<Engine0, Layout0> &tenso
     }
 }
 
+
+// Apply the exp to all the elements.
+template <bool Scale_max=true, typename Tensor0, typename Tensor1>
+__forceinline__ __device__ void scale_apply_exp2_cutlass(Tensor0 &tensor, Tensor1 const &max, const float scale) {
+    // static_assert(Layout0::rank == 2, "Only support 2D Tensor");
+    // static_assert(Layout1::rank == 1, "Only support 1D Tensor");
+    using ElementType = typename Tensor0::value_type;
+
+    CUTE_STATIC_ASSERT_V(size<0>(max) == size<0>(tensor));
+    #pragma unroll
+    for (int mi = 0; mi < size<0>(tensor); ++mi) {
+        // If max is -inf, then all elements must have been -inf (possibly due to masking).
+        // We don't want (-inf - (-inf)) since that would give NaN.
+        // If we don't have float around M_LOG2E the multiplication is done in fp64.
+        const float max_scaled = max(mi) == -INFINITY ? 0.f : max(mi) * (Scale_max ? scale : float(M_LOG2E));
+        #pragma unroll
+        for (int ni = 0; ni < size<1>(tensor); ++ni)  {
+            // Instead of computing exp(x - max), we compute exp2(x * log_2(e) -
+            // max * log_2(e)) This allows the compiler to use the ffma
+            // instruction instead of fadd and fmul separately.
+            // The following macro will disable the use of fma.
+            // See: https://github.com/pytorch/pytorch/issues/121558 for more details
+            // This macro is set in PyTorch and not FlashAttention
+            #ifdef UNFUSE_FMA
+                float tmp = exp2f(__fmul_rn(tensor(mi, ni), scale) - max_scaled);
+                tensor(mi, ni) = ElementType(tmp);
+            #else
+                float tmp = exp2f(tensor(mi, ni) * scale - max_scaled);
+                tensor(mi, ni) = ElementType(tmp);
+            #endif
+        }
+    }
+}
+
+
 // Apply the exp to all the elements.
 template <bool zero_init=true, typename Engine0, typename Layout0, typename Engine1, typename Layout1>
 __forceinline__ __device__ void max_scale_exp2_sum(Tensor<Engine0, Layout0> &tensor, Tensor<Engine1, Layout1> &max, Tensor<Engine1, Layout1> &sum, const float scale) {
@@ -183,6 +218,31 @@ struct Softmax {
         }
         return lse;
     };
+
+    template<typename Tensor0>
+    __forceinline__ __device__ void normalize_softmax_recompute(Tensor0 &acc_s, float softmax_scale, float softmax_scale_log2) {
+        using ElementType = typename Tensor0::value_type;
+        Tensor scores = make_tensor(acc_s.data(), flash::convert_layout_acc_rowcol(acc_s.layout()));
+        flash::scale_apply_exp2_cutlass(scores, row_max, softmax_scale_log2); // scores = exp(score - row_max)
+
+        SumOp<float> sum_op;
+        quad_allreduce_(row_sum, row_sum, sum_op);
+        // TensorT lse = make_fragment_like(row_sum);
+        // static_assert(decltype(size<0>(scores))::value == kNRows);
+        #pragma unroll
+        for (int mi = 0; mi < size<0>(row_sum); ++mi) {
+            float sum = row_sum(mi);
+            float inv_sum = (sum == 0.f || sum != sum) ? 1.f : 1.f / sum;
+            // lse(mi) = (sum == 0.f || sum != sum) ? (Split ? -INFINITY : INFINITY) : row_max(mi) * softmax_scale + __logf(sum);
+            float scale = inv_sum;
+            
+            #pragma unroll
+            for (int ni = 0; ni < size<1>(scores); ++ni) { scores(mi, ni) *= ElementType(scale); }
+        }
+        return ;
+    };
+
+   
 };
 
 }  // namespace flash
