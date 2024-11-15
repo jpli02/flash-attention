@@ -568,16 +568,16 @@ def get_dropout_fraction(
     "seqlen_q,seqlen_k",
     [
         # (113, 203),
-        (128, 128),
+        # (128, 128),
         # (128, 217),
         # (113, 211),
         # (108, 256),
         # (256, 512),
-        # (512, 256),
+        (512, 256),
         (1024, 1024),
         # (1023, 1024),
         # (1024, 1023),
-        # (2048, 2048),
+        (2048, 2048),
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -749,6 +749,10 @@ def test_flash_attn_output(
     
     print(f"c_score shape: {c_score.shape}")
     print(f"attn_pt_score shape: {attn_pt_score.shape}")
+    
+    print(f"attn_pt_score : {attn_pt_score[0]}")
+    print(f"c_score : {c_score[0]}")
+    
     
     
     print(f"accum score max diff: {(c_score - attn_pt_score).abs().max().item() }")

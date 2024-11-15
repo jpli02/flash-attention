@@ -399,6 +399,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     // first-pass ends
 
+    flash::Softmax<2 * size<1>(acc_o)> softmax_recompute;
+    softmax_recompute.row_max = softmax.row_max;
+    softmax_recompute.row_sum = softmax.row_sum;
 
     // second-pass start
     n_block = n_block_max - 1;
@@ -453,7 +456,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             Tensor rC = rP;
             Tensor rC_drop = make_fragment_like(rC);
             cute::copy(rC, rC_drop);
-            softmax.template normalize_softmax_recompute<>(rC_drop, params.scale_softmax, params.scale_softmax_log2);
+            softmax_recompute.template normalize_softmax_recompute<>(rC_drop, params.scale_softmax, params.scale_softmax_log2);
 
             __syncthreads();
             #pragma unroll
@@ -519,7 +522,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             Tensor rC = rP;
             Tensor rC_drop = make_fragment_like(rC);
             cute::copy(rC, rC_drop);
-            softmax.template normalize_softmax_recompute<>(rC_drop, params.scale_softmax, params.scale_softmax_log2);
+            softmax_recompute.template normalize_softmax_recompute<>(rC_drop, params.scale_softmax, params.scale_softmax_log2);
 
             __syncthreads();
             #pragma unroll
