@@ -574,7 +574,7 @@ def get_dropout_fraction(
         # (108, 256),
         # (256, 512),
         # (512, 256),
-        (1024, 1024),
+        # (1024, 1024),
         # (1023, 1024),
         # (1024, 1023),
         # (2048, 2048),
@@ -753,6 +753,10 @@ def test_flash_attn_output(
     
     print(f"accum score max diff: {(c_score - attn_pt_score).abs().max().item() }")
     print(f"accum score mean diff: {(c_score - attn_pt_score).abs().mean().item() }")
+    
+    print(f"c_score val at : {c_score[0]}")
+    print(f"accum val at : {attn_pt_score[0]}")
+    print(c_score[0] / attn_pt_score[0])
 
     
     if dropout_p > 0.0:

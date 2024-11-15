@@ -399,6 +399,72 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     // first-pass ends
 
+    // Epilogue
+
+    Tensor lse = softmax.template normalize_softmax_lse<Is_dropout>(acc_o, params.scale_softmax, params.rp_dropout);
+
+    // Convert acc_o from fp32 to fp16/bf16
+    Tensor rO = flash::convert_type<Element>(acc_o);
+    Tensor sO = make_tensor(sQ.data(), typename Kernel_traits::SmemLayoutO{});    // (SMEM_M,SMEM_N)
+    // Partition sO to match the accumulator partitioning
+    auto smem_tiled_copy_O = make_tiled_copy_C(typename Kernel_traits::SmemCopyAtomO{}, tiled_mma);
+    auto smem_thr_copy_O = smem_tiled_copy_O.get_thread_slice(tidx);
+    Tensor taccOrO = smem_thr_copy_O.retile_S(rO);        // ((Atom,AtomNum), MMA_M, MMA_N)
+    Tensor taccOsO = smem_thr_copy_O.partition_D(sO);     // ((Atom,AtomNum),PIPE_M,PIPE_N)
+
+    // sO has the same size as sQ, so we don't need to sync here.
+    if (Kernel_traits::Share_Q_K_smem) { __syncthreads(); }
+
+    cute::copy(smem_tiled_copy_O, taccOrO, taccOsO);
+
+    Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr)
+                                          + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
+                            make_shape(binfo.actual_seqlen_q, params.h, params.d),
+                            make_stride(params.o_row_stride, params.o_head_stride, _1{}));
+    Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
+                           make_coord(m_block, 0));  // (kBlockM, kHeadDim)
+    Tensor mLSE = make_tensor(make_gmem_ptr(reinterpret_cast<ElementAccum*>(params.softmax_lse_ptr)),
+                              make_shape(params.b, params.h, params.seqlen_q),
+                              make_stride(params.h * params.seqlen_q, params.seqlen_q, _1{}));
+    Tensor gLSE = local_tile(mLSE(bidb, bidh, _), Shape<Int<kBlockM>>{}, make_coord(m_block));
+
+    typename Kernel_traits::GmemTiledCopyO gmem_tiled_copy_O;
+    auto gmem_thr_copy_O = gmem_tiled_copy_O.get_thread_slice(tidx);
+    Tensor tOsO = gmem_thr_copy_O.partition_S(sO);        // ((Atom,AtomNum),ATOM_M,ATOM_N)
+    Tensor tOgO = gmem_thr_copy_O.partition_D(gO);
+
+    __syncthreads();
+
+    Tensor tOrO = make_tensor<Element>(shape(tOgO));
+    cute::copy(gmem_tiled_copy_O, tOsO, tOrO);
+
+    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
+    Tensor taccOcO = thr_mma.partition_C(caccO);                           // (MMA,MMA_M,MMA_K)
+    static_assert(decltype(size<0>(taccOcO))::value == 4);
+    // Convert to ((2, 2), MMA_M, MMA_K) then take only the row indices.
+    Tensor taccOcO_row = logical_divide(taccOcO, Shape<_2>{})(make_coord(0, _), _, 0);
+    CUTE_STATIC_ASSERT_V(size(lse) == size(taccOcO_row));                     // MMA_M
+    if (get<1>(taccOcO_row(0)) == 0) {
+        #pragma unroll
+        for (int mi = 0; mi < size(lse); ++mi) {
+            const int row = get<0>(taccOcO_row(mi));
+            if (row < binfo.actual_seqlen_q - m_block * kBlockM) { gLSE(row) = lse(mi); }
+        }
+    }
+
+    // Construct identity layout for sO
+    Tensor cO = make_identity_tensor(make_shape(size<0>(sO), size<1>(sO)));    // (BLK_M,BLK_K) -> (blk_m,blk_k)
+    // Repeat the partitioning with identity layouts
+    Tensor tOcO = gmem_thr_copy_O.partition_D(cO);                           // (ACPY,ACPY_M,ACPY_K) -> (blk_m,blk_k)
+    Tensor tOpO = make_tensor<bool>(make_shape(size<2>(tOgO)));
+    if (!Is_even_K) {
+        #pragma unroll
+        for (int k = 0; k < size(tOpO); ++k) { tOpO(k) = get<1>(tOcO(0, 0, k)) < params.d; }
+    }
+    // Clear_OOB_K must be false since we don't want to write zeros to gmem
+    flash::copy<Is_even_MN, Is_even_K, /*Clear_OOB_MN=*/false, /*Clear_OOB_K=*/false>(
+        gmem_tiled_copy_O, tOrO, tOgO, tOcO, tOpO, binfo.actual_seqlen_q - m_block * kBlockM
+    );
 
     // second-pass start
     n_block = n_block_max - 1;
@@ -542,72 +608,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     // second-pass ends
 
-    // Epilogue
-
-    Tensor lse = softmax.template normalize_softmax_lse<Is_dropout>(acc_o, params.scale_softmax, params.rp_dropout);
-
-    // Convert acc_o from fp32 to fp16/bf16
-    Tensor rO = flash::convert_type<Element>(acc_o);
-    Tensor sO = make_tensor(sQ.data(), typename Kernel_traits::SmemLayoutO{});    // (SMEM_M,SMEM_N)
-    // Partition sO to match the accumulator partitioning
-    auto smem_tiled_copy_O = make_tiled_copy_C(typename Kernel_traits::SmemCopyAtomO{}, tiled_mma);
-    auto smem_thr_copy_O = smem_tiled_copy_O.get_thread_slice(tidx);
-    Tensor taccOrO = smem_thr_copy_O.retile_S(rO);        // ((Atom,AtomNum), MMA_M, MMA_N)
-    Tensor taccOsO = smem_thr_copy_O.partition_D(sO);     // ((Atom,AtomNum),PIPE_M,PIPE_N)
-
-    // sO has the same size as sQ, so we don't need to sync here.
-    if (Kernel_traits::Share_Q_K_smem) { __syncthreads(); }
-
-    cute::copy(smem_tiled_copy_O, taccOrO, taccOsO);
-
-    Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr)
-                                          + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
-                            make_shape(binfo.actual_seqlen_q, params.h, params.d),
-                            make_stride(params.o_row_stride, params.o_head_stride, _1{}));
-    Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
-                           make_coord(m_block, 0));  // (kBlockM, kHeadDim)
-    Tensor mLSE = make_tensor(make_gmem_ptr(reinterpret_cast<ElementAccum*>(params.softmax_lse_ptr)),
-                              make_shape(params.b, params.h, params.seqlen_q),
-                              make_stride(params.h * params.seqlen_q, params.seqlen_q, _1{}));
-    Tensor gLSE = local_tile(mLSE(bidb, bidh, _), Shape<Int<kBlockM>>{}, make_coord(m_block));
-
-    typename Kernel_traits::GmemTiledCopyO gmem_tiled_copy_O;
-    auto gmem_thr_copy_O = gmem_tiled_copy_O.get_thread_slice(tidx);
-    Tensor tOsO = gmem_thr_copy_O.partition_S(sO);        // ((Atom,AtomNum),ATOM_M,ATOM_N)
-    Tensor tOgO = gmem_thr_copy_O.partition_D(gO);
-
-    __syncthreads();
-
-    Tensor tOrO = make_tensor<Element>(shape(tOgO));
-    cute::copy(gmem_tiled_copy_O, tOsO, tOrO);
-
-    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
-    Tensor taccOcO = thr_mma.partition_C(caccO);                           // (MMA,MMA_M,MMA_K)
-    static_assert(decltype(size<0>(taccOcO))::value == 4);
-    // Convert to ((2, 2), MMA_M, MMA_K) then take only the row indices.
-    Tensor taccOcO_row = logical_divide(taccOcO, Shape<_2>{})(make_coord(0, _), _, 0);
-    CUTE_STATIC_ASSERT_V(size(lse) == size(taccOcO_row));                     // MMA_M
-    if (get<1>(taccOcO_row(0)) == 0) {
-        #pragma unroll
-        for (int mi = 0; mi < size(lse); ++mi) {
-            const int row = get<0>(taccOcO_row(mi));
-            if (row < binfo.actual_seqlen_q - m_block * kBlockM) { gLSE(row) = lse(mi); }
-        }
-    }
-
-    // Construct identity layout for sO
-    Tensor cO = make_identity_tensor(make_shape(size<0>(sO), size<1>(sO)));    // (BLK_M,BLK_K) -> (blk_m,blk_k)
-    // Repeat the partitioning with identity layouts
-    Tensor tOcO = gmem_thr_copy_O.partition_D(cO);                           // (ACPY,ACPY_M,ACPY_K) -> (blk_m,blk_k)
-    Tensor tOpO = make_tensor<bool>(make_shape(size<2>(tOgO)));
-    if (!Is_even_K) {
-        #pragma unroll
-        for (int k = 0; k < size(tOpO); ++k) { tOpO(k) = get<1>(tOcO(0, 0, k)) < params.d; }
-    }
-    // Clear_OOB_K must be false since we don't want to write zeros to gmem
-    flash::copy<Is_even_MN, Is_even_K, /*Clear_OOB_MN=*/false, /*Clear_OOB_K=*/false>(
-        gmem_tiled_copy_O, tOrO, tOgO, tOcO, tOpO, binfo.actual_seqlen_q - m_block * kBlockM
-    );
+    
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
