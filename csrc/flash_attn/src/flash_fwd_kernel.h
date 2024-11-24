@@ -399,12 +399,33 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     // first-pass ends
 
+    
+
+    // second-pass start
+    // Prologue for second-pass
+    n_block = n_block_max - 1;
+    flash::copy<Is_even_MN, Is_even_K>(gmem_tiled_copy_QKV, tKgK(_, _, _, n_block), tKsK, tKVcKV, tKVpKV,
+                                       binfo.actual_seqlen_k - n_block * kBlockN);
+    cute::cp_async_fence();
+    // if (threadIdx.x == 0 && blockIdx.y == 0 && blockIdx.z < 2) { print(tKgK); }
+    // __syncthreads();
+
+    if (Kernel_traits::Is_Q_in_regs && !Kernel_traits::Share_Q_K_smem) {
+        flash::cp_async_wait<1>();
+        __syncthreads();
+        Tensor tSrQ_copy_view = smem_thr_copy_Q.retile_D(tSrQ);
+        CUTE_STATIC_ASSERT_V(size<1>(tSsQ) == size<1>(tSrQ_copy_view));            // M
+        cute::copy(smem_tiled_copy_Q, tSsQ, tSrQ_copy_view);
+    }
+
+    clear(acc_o);
+
     flash::Softmax<2 * size<1>(acc_o)> softmax_recompute;
     softmax_recompute.row_max = softmax.row_max;
     softmax_recompute.row_sum = softmax.row_sum;
 
-    // second-pass start
-    n_block = n_block_max - 1;
+    // Prologue for second-pass
+
     #pragma unroll
     for (int masking_step = 0; masking_step < n_masking_steps; ++masking_step, --n_block) {
         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
@@ -441,11 +462,6 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             // isn't right and we get race conditions.
             cute::cp_async_fence();
         }
-
-        // // TODO: when we have key_padding_mask we'll need to Check_inf
-        // masking_step == 0
-        //     ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2)
-        //     : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2);
 
         // Convert acc_s from fp32 to fp16/bf16
         Tensor rP = flash::convert_type<Element>(acc_s);

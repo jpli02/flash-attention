@@ -547,7 +547,7 @@ def get_dropout_fraction(
 # @pytest.mark.parametrize("kvpacked", [True, False])
 @pytest.mark.parametrize("kvpacked", [False])
 # @pytest.mark.parametrize("dtype", ([torch.float16] if is_sm75 else [torch.float16, torch.bfloat16]))
-@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("dtype", [torch.float16])
 # @pytest.mark.parametrize("mha_type", ["mha", "mqa", "gqa"])
 @pytest.mark.parametrize("mha_type", ["mha"])
 # @pytest.mark.parametrize("deterministic", [False, True])
@@ -567,17 +567,27 @@ def get_dropout_fraction(
 @pytest.mark.parametrize(
     "seqlen_q,seqlen_k",
     [
-        # (113, 203),
-        # (128, 128),
-        # (128, 217),
-        # (113, 211),
-        # (108, 256),
-        # (256, 512),
-        (512, 256),
+        (128, 128),
+        (128, 256),
+        (128, 512),
+        (128, 1024),
+        (128, 2048),
+        (128, 4096),
+        (256, 256),
+        (256, 512),
+        (256, 1024),
+        (256, 2048),
+        (256, 4096),
+        (512, 512),
+        (512, 1024),
+        (512, 2048),
+        (512, 4096),
         (1024, 1024),
-        # (1023, 1024),
-        # (1024, 1023),
+        (1024, 2048),
+        (1024, 4096),
         (2048, 2048),
+        (2048, 4096),
+        
     ],
 )
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(256, 128)])
@@ -732,12 +742,12 @@ def test_flash_attn_output(
             reorder_ops=True,
         )
 
-    print(f"Output max diff: {(out - out_ref).abs().max().item()}")
-    print(f"Output mean diff: {(out - out_ref).abs().mean().item()}")
-    print(f"Pytorch output max diff: {(out_pt - out_ref).abs().max().item()}")
-    print(f"Pytorch output mean diff: {(out_pt - out_ref).abs().mean().item()}")
+    print(f"flash vs pytorch: output max diff: {(out - out_ref).abs().max().item()}")
+    print(f"flash vs pytorch: output mean diff: {(out - out_ref).abs().mean().item()}")
+    print(f"pytorch vs pytorch: output max diff: {(out_pt - out_ref).abs().max().item()}")
+    print(f"pytorch vs pytorch: output mean diff: {(out_pt - out_ref).abs().mean().item()}")
     print(f"c shape: {c.shape}")
-    print(f"attention_ref shape: {attn_pt.shape}")
+    print(f"attention_pytorch shape: {attn_pt.shape}")
     
     b, n_head, blockSize, s = c.shape
     c_score = c.view(b * n_head, blockSize, s)
@@ -747,16 +757,26 @@ def test_flash_attn_output(
     attn_pt_score = attn_pt.view(pt_b * pt_n_head, pt_blockSize, pt_s)
     attn_pt_score = torch.sum(attn_pt_score, dim = 1)
     
-    print(f"c_score shape: {c_score.shape}")
-    print(f"attn_pt_score shape: {attn_pt_score.shape}")
+    ref_b, ref_n_head, ref_blockSize, ref_s = attn_ref.shape
+    attn_ref_score = attn_ref.view(ref_b * ref_n_head, ref_blockSize, ref_s)
+    attn_ref_score = torch.sum(attn_ref_score, dim = 1)
+
+    # print(f"c : {c[0][0][0]}")
+    # print(f"c_score shape: {c_score.shape}")
+    # print(f"attn_pt_score shape: {attn_pt_score.shape}")
     
-    print(f"attn_pt_score : {attn_pt_score[0]}")
-    print(f"c_score : {c_score[0]}")
+    # print(f"attn_pt_score : {attn_pt_score[0]}")
+    # print(f"c_score : {c_score[0]}")
+    # print(f"factor : {attn_pt_score[0] / c_score[0]}")
     
     
     
-    print(f"accum score max diff: {(c_score - attn_pt_score).abs().max().item() }")
-    print(f"accum score mean diff: {(c_score - attn_pt_score).abs().mean().item() }")
+    print(f"flash vs pytorch: accum score max diff: {(c_score - attn_pt_score).abs().max().item() }")
+    print(f"flash vs pytorch: accum score mean diff: {(c_score - attn_pt_score).abs().mean().item() }")
+    print(f"pytoch vs pytorch: accum score max diff: {(attn_ref_score - attn_pt_score).abs().max().item() }")
+    print(f"pytoch vs pytorch: accum score mean diff: {(attn_ref_score - attn_pt_score).abs().mean().item() }")
+    print("------------------- ");
+    # assert (c_score - attn_pt_score).abs().max().item() <= 2 * (attn_pt_score - attn_ref_score).abs().max().item()
 
     
     if dropout_p > 0.0:
