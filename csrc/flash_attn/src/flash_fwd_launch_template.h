@@ -35,6 +35,15 @@ DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_kernel, bool Is_dropout, bool Is_causal, b
     #endif
 }
 
+DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_2pass_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Return_softmax) {
+    #if defined(ARCH_SUPPORTS_FLASH)
+        static_assert(!(Is_causal && Is_local)); // Enforce constraints
+        flash::compute_attn_2pass<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Return_softmax>(params);
+    #else
+        FLASH_UNSUPPORTED_ARCH
+    #endif
+}
+
 DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_splitkv_kernel, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Split, bool Append_KV) {
     #if defined(ARCH_SUPPORTS_FLASH)
         flash::compute_attn_splitkv<Kernel_traits, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Split, Append_KV>(params);
@@ -51,8 +60,6 @@ DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_splitkv_combine_kernel, int kBlockM, int L
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal>
 void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     constexpr size_t smem_size = Kernel_traits::kSmemSize;
-    // printf("smem_size = %d\n", smem_size);
-
 
     // Work-around for gcc 7. It doesn't like nested BOOL_SWITCH.
     // https://github.com/kokkos/kokkos-kernels/issues/349
@@ -62,7 +69,7 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     dim3 grid(num_m_block, params.b, params.h);
     const bool is_even_MN = params.cu_seqlens_q == nullptr && params.cu_seqlens_k == nullptr && params.seqlen_k % Kernel_traits::kBlockN == 0 && params.seqlen_q % Kernel_traits::kBlockM == 0;
     const bool is_even_K = params.d == Kernel_traits::kHeadDim;
-    const bool return_softmax = params.p_ptr != nullptr;
+    const bool return_softmax = params.c_ptr != nullptr;
     BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
         EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
             LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !Is_causal, Is_local, [&] {
@@ -92,6 +99,42 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
             });
         });
     });
+
+    // second pass starts
+    if (!return_softmax) {
+        return;
+    }
+    const int num_n_block = (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN;
+    int gridDimx = num_n_block;
+    if (params.deterministic) {
+        auto dprops = at::cuda::getCurrentDeviceProperties();
+        gridDimx = (dprops->multiProcessorCount + params.b * params.h - 1) / (params.b * params.h);
+    }
+    dim3 grid_n(gridDimx, params.b, params.h);
+
+    constexpr int smem_size_2pass = Kernel_traits::kSmemSize1colblock;
+    // printf("smem_size_dq_dk_dv = %d\n", smem_size_dq_dk_dv);
+    BOOL_SWITCH(params.is_causal, Is_causal, [&] {
+        BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
+            EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
+                LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !params.is_causal, Is_local, [&] {
+                    ALIBI_SWITCH(params.alibi_slopes_ptr != nullptr, Has_alibi, [&] {
+                        // If not IsEvenKConst, we also set IsEvenMNConst to false to reduce number of templates.
+                        // If head dim > 128, set IsEvenMNConst to false to reduce number of templates
+                        // If Is_local, set Is_causal to false
+                        auto kernel_2pass = &flash_fwd_2pass_kernel<Kernel_traits, Is_dropout, Is_causal, Is_local && !Is_causal, Has_alibi, IsEvenMNConst && IsEvenKConst && !Is_local && !ReturnSoftmaxConst && Kernel_traits::kHeadDim <= 128, IsEvenKConst, ReturnSoftmaxConst>;
+                        if (smem_size_2pass >= 48 * 1024)  {
+                            C10_CUDA_CHECK(cudaFuncSetAttribute(
+                                kernel_2pass, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size_2pass));
+                        }
+                        kernel_2pass<<<grid_n, Kernel_traits::kNThreads, smem_size_2pass, stream>>>(params);
+                        C10_CUDA_KERNEL_LAUNCH_CHECK();
+                    });
+                });
+            });
+        });
+    });
+
 }
 
 template<typename Kernel_traits>
