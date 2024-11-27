@@ -106,18 +106,20 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     }
     const int num_n_block = (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN;
     int gridDimx = num_n_block;
-    if (params.deterministic) {
-        auto dprops = at::cuda::getCurrentDeviceProperties();
-        gridDimx = (dprops->multiProcessorCount + params.b * params.h - 1) / (params.b * params.h);
-    }
+    // if (params.deterministic) {
+    //     auto dprops = at::cuda::getCurrentDeviceProperties();
+    //     gridDimx = (dprops->multiProcessorCount + params.b * params.h - 1) / (params.b * params.h);
+    // }
     dim3 grid_n(gridDimx, params.b, params.h);
 
     constexpr int smem_size_2pass = Kernel_traits::kSmemSize1colblock;
     // printf("smem_size_dq_dk_dv = %d\n", smem_size_dq_dk_dv);
-    BOOL_SWITCH(params.is_causal, Is_causal, [&] {
-        BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
-            EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
-                LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !params.is_causal, Is_local, [&] {
+    const bool is_even_M = params.cu_seqlens_q == nullptr && params.seqlen_q % Kernel_traits::kBlockM == 0;
+    const bool is_even_N = params.cu_seqlens_k == nullptr && params.seqlen_k % Kernel_traits::kBlockN == 0;
+    BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
+        EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
+            LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !params.is_causal, Is_local, [&] {
+                BOOL_SWITCH(return_softmax, ReturnSoftmaxConst, [&] {
                     ALIBI_SWITCH(params.alibi_slopes_ptr != nullptr, Has_alibi, [&] {
                         // If not IsEvenKConst, we also set IsEvenMNConst to false to reduce number of templates.
                         // If head dim > 128, set IsEvenMNConst to false to reduce number of templates
@@ -134,6 +136,8 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
             });
         });
     });
+
+
 
 }
 
