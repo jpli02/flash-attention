@@ -527,7 +527,7 @@ class FlashAttnFunc(torch.autograd.Function):
         ctx.window_size = window_size
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        return (out, c) if not return_softmax else (out, c)
+        return out if not return_softmax else (out, c)
 
     @staticmethod
     def backward(ctx, dout, *args):
