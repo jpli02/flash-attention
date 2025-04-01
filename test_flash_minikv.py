@@ -402,6 +402,8 @@ def flash_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     end_time = time.time()
     
     flash_time = ((end_time - start_time) / 10.0) * 1000
+    # print(f"flash time: {flash_time} ms")
+    
     return attn_output, flash_time
 
 def triton_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
@@ -423,6 +425,7 @@ def triton_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     end_time = time.time()
     
     op_time = ((end_time - start_time) / 10.0) * 1000
+    print(f"triton time: {op_time} ms")
     
     return tri_out, tri_c, tri_m, op_time
 
@@ -447,8 +450,6 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal=False, dtype=torch.float16):
 
     #print(f"accum score max diff: {(tri_c_gpu.half() - ref_c_gpu1).abs().max().item()}")
     # print("---------------------------------------------")
-    print(f"triton time: {triton_time}")
-    print(f"flash time: {flash_time}")
     # print(ref_c_gpu1)
     # print("---------------------------------------------")
     # print("triton attention")
