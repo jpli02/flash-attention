@@ -391,21 +391,40 @@ def flash_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     for i in range(10):
         _ = flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=causal,
                 window_size=(-1, -1), alibi_slopes=None, deterministic=False)
-    
+        
+    torch.cuda.synchronize()
+    start_time = time.time()
     for i in range(10):    
        attn_output = flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=causal,
                     window_size=(-1, -1), alibi_slopes=None, deterministic=False)
 
-    return attn_output
+    torch.cuda.synchronize()
+    end_time = time.time()
+    
+    flash_time = ((end_time - start_time) / 10.0) * 1000
+    return attn_output, flash_time
 
 def triton_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     """
     Perform Triton-based attention computation on the GPU.
     """
-    q, k, v = create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
-    sm_scale = 1.0 / math.sqrt(HEAD_DIM)
-    tri_out, tri_c, tri_m = selection_attention(q, k, v, causal, sm_scale)
-    return tri_out, tri_c, tri_m
+    for _ in range(10):
+        q, k, v = create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
+        sm_scale = 1.0 / math.sqrt(HEAD_DIM)
+        tri_out, tri_c, tri_m = selection_attention(q, k, v, causal, sm_scale)
+    
+    torch.cuda.synchronize()
+    start_time = time.time()    
+    for _ in range(10):
+        q, k, v = create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
+        sm_scale = 1.0 / math.sqrt(HEAD_DIM)
+        tri_out, tri_c, tri_m = selection_attention(q, k, v, causal, sm_scale)
+    torch.cuda.synchronize()
+    end_time = time.time()
+    
+    op_time = ((end_time - start_time) / 10.0) * 1000
+    
+    return tri_out, tri_c, tri_m, op_time
 
 def test_attention(Z, H, N_CTX, HEAD_DIM, causal=False, dtype=torch.float16):
     """
@@ -416,9 +435,9 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal=False, dtype=torch.float16):
     # Convert reference tensors to match dtype of Triton results
     ref_c_gpu1 = ref_c_gpu1.half()
     ref_out_gpu1 = ref_out_gpu1.half()
-    tri_out_gpu, tri_c_gpu, tri_m_gpu = triton_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype)
+    tri_out_gpu, tri_c_gpu, tri_m_gpu, triton_time = triton_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype)
 
-    flash_out_gpu = flash_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype)
+    flash_out_gpu, flash_time = flash_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype)
 
     # Compare results
     #print(f"Attention max diff: {(tri_out_gpu.half() - ref_out_gpu1).abs().max().item()}")
@@ -428,7 +447,8 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal=False, dtype=torch.float16):
 
     #print(f"accum score max diff: {(tri_c_gpu.half() - ref_c_gpu1).abs().max().item()}")
     # print("---------------------------------------------")
-    # print("ref attention")
+    print(f"triton time: {triton_time}")
+    print(f"flash time: {flash_time}")
     # print(ref_c_gpu1)
     # print("---------------------------------------------")
     # print("triton attention")
