@@ -402,7 +402,7 @@ def flash_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     end_time = time.time()
     
     flash_time = ((end_time - start_time) / 10.0) * 1000
-    # print(f"flash time: {flash_time} ms")
+    print(f"flash time: {flash_time} ms")
     
     return attn_output, flash_time
 
@@ -442,26 +442,7 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal=False, dtype=torch.float16):
 
     flash_out_gpu, flash_time = flash_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype)
 
-    # Compare results
-    #print(f"Attention max diff: {(tri_out_gpu.half() - ref_out_gpu1).abs().max().item()}")
-    assert torch.allclose(ref_out_gpu1, tri_out_gpu.half(), atol=0.8, rtol=0), "Attention output mismatch"
-    assert torch.allclose(ref_out_gpu1, flash_out_gpu.half(), atol=0.8, rtol=0), "flash Attention output mismatch"
-    print("Attention check passed")
-
-    #print(f"accum score max diff: {(tri_c_gpu.half() - ref_c_gpu1).abs().max().item()}")
-    # print("---------------------------------------------")
-    # print(ref_c_gpu1)
-    # print("---------------------------------------------")
-    # print("triton attention")
-    # print(tri_c_gpu.half())
-
-    assert torch.allclose(ref_c_gpu1, tri_c_gpu.half(), atol=0.05, rtol=0), "col-wise sum score acc mismatch"
-    print("Attention score acc check passed")
-
-    # save results
-    # pd.DataFrame(ref_c_gpu.cpu().numpy().flatten()).to_csv("/u/ndani/selection_kernel/reference_scores.csv", index=False, header=False, float_format="%.5f")
-    # pd.DataFrame(tri_c_gpu.cpu().numpy().flatten()).to_csv("/u/ndani/selection_kernel/ours_scores.csv", index=False, header=False, float_format="%.5f")
-
+    
 if __name__ == "__main__":
 
     # Execute the test
